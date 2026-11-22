@@ -1,0 +1,43 @@
+
+@if (next().length) {
+  <button mat-stroked-button type="button" [matMenuTriggerFor]="transitions"
+    [disabled]="busy() || task.pending() || preflight.pending()">Change status</button>
+  <mat-menu #transitions="matMenu">
+    @for (status of next(); track status) {
+      <button mat-menu-item (click)="select(status)"><app-status-chip [status]="status" /></button>
+    }
+  </mat-menu>
+}
+@if (target(); as status) {
+  <form class="panel subpanel" [formGroup]="form" (ngSubmit)="submit()">
+    <h2>Change status <app-status-chip [status]="status" /></h2>
+    <app-feedback [loading]="task.pending() || preflight.pending()"
+      [errors]="task.errors().concat(preflight.errors()).concat(blockers())" />
+    @if (status === 'Closed') {
+      @if (checklist()?.canClose) { <p>Closure checks passed.</p> }
+      @if (!preflight.pending() && !task.pending()) {
+        <button mat-button type="button" (click)="loadChecklist()">Refresh closure checks</button>
+      }
+    }
+    @if (assign()) {
+      @if (handler()) { <p>Assign this claim to the demo handler.</p> }
+      @else { <p class="error">Sign in as the handler to open this unassigned claim.</p> }
+    }
+    @if (mustAcknowledge()) {
+      <div><mat-checkbox formControlName="acknowledge">I acknowledge the loss date is outside the policy period.</mat-checkbox></div>
+    }
+    @if (mustConfirmBalance()) {
+      <div><mat-checkbox formControlName="positive">I confirm closure with a positive reserve balance.</mat-checkbox></div>
+    }
+    @if (mustDetermineLiability()) {
+      <div><mat-checkbox formControlName="liability">Liability has been determined.</mat-checkbox></div>
+    }
+    <mat-form-field class="full"><mat-label>{{ reasonRequired() ? 'Required reason' : 'Reason (optional)' }}</mat-label>
+      <textarea matInput formControlName="reason" maxlength="2000" [required]="reasonRequired()"></textarea>
+    </mat-form-field>
+    <div class="actions">
+      <button mat-button type="button" [disabled]="task.pending() || preflight.pending()" (click)="target.set(null)">Cancel</button>
+      <button mat-flat-button [disabled]="disabled()">Review change</button>
+    </div>
+  </form>
+}

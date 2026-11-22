@@ -1,0 +1,60 @@
+
+<section class="tab-body">
+  @let data = claim();
+  <h2>Loss details</h2>
+  <dl class="summary">
+    <dt>Claim type</dt><dd>{{ data.claimType }}</dd>
+    <dt>Severity</dt><dd><span class="badge">{{ data.severity }}</span></dd>
+    <dt>Reported (UTC)</dt><dd>{{ data.reportedAt | date:'medium':'UTC' }}</dd>
+    <dt>Loss date (UTC)</dt><dd>{{ data.lossEvent.lossDate | date:'medium':'UTC' }}</dd>
+    <dt>Cause of loss</dt><dd>{{ data.lossEvent.causeOfLossCode }}</dd>
+    <dt>Description</dt><dd class="long-text">{{ data.lossEvent.lossDescription }}</dd>
+    <dt>Location</dt><dd>{{ data.lossEvent.lossLocation || '—' }}</dd>
+    <dt>Estimated loss</dt><dd>{{ data.lossEvent.estimatedLossAmount | money }}</dd>
+    <dt>Police report number</dt><dd>{{ data.lossEvent.policeReportNumber || '—' }}</dd>
+    @if (data.closedAt) {
+      <dt>Closed (UTC)</dt><dd>{{ data.closedAt | date:'medium':'UTC' }}</dd>
+      <dt>Closure reason</dt><dd>{{ data.closureReason || '—' }}</dd>
+    }
+    @if (data.lastSlaBreachAt) { <dt>Last SLA breach (UTC)</dt><dd>{{ data.lastSlaBreachAt | date:'medium':'UTC' }}</dd> }
+  </dl>
+  @if (data.warnings.length) {
+    <ul class="feedback warning">
+      @for (warning of data.warnings; track warning.code) { <li>{{ warning.message }}</li> }
+    </ul>
+  }
+  @if (!data.policyId && data.status !== 'Closed' && data.status !== 'Withdrawn') {
+    @if (!linking()) {
+      <button mat-stroked-button (click)="linking.set(true)">Link policy</button>
+    } @else {
+      <div class="panel subpanel">
+        <h3>Link policy</h3>
+        <app-policy-search (selection)="choosePolicy($event)" />
+        <app-feedback [loading]="policyTask.pending()" [errors]="policyTask.errors()" />
+        @if (needsAcknowledgement()) {
+          <div><mat-checkbox [formControl]="acknowledgement">Acknowledge loss outside policy period</mat-checkbox></div>
+        }
+        <div class="actions">
+          <button mat-button [disabled]="policyTask.pending()" (click)="linking.set(false); choosePolicy(null)">Cancel</button>
+          <button mat-flat-button [disabled]="!policy() || policyTask.pending() || (needsAcknowledgement() && !acknowledgement.value)"
+            (click)="linkPolicy()">Link selected policy</button>
+        </div>
+      </div>
+    }
+  }
+  <h2>Risk objects</h2>
+  @for (risk of data.riskObjects; track risk.id) {
+    <div class="record-line"><span><strong>{{ risk.assetDescription }}</strong> · {{ risk.assetType }} · {{ risk.assetReference || 'No reference' }}
+      @if (risk.isPrimary) { <span class="badge">Primary</span> }
+      @if (risk.damageDescription) { <span class="long-text"> · {{ risk.damageDescription }}</span> }</span></div>
+  } @empty { <p class="muted">No risk objects reported.</p> }
+  <h2>Claim notes</h2>
+  <app-feedback [loading]="notesTask.pending()" [errors]="notesTask.errors()" />
+  @if (saved() && notes.pristine) { <p class="success" role="status">Notes saved.</p> }
+  <form (ngSubmit)="saveNotes()">
+    <mat-form-field class="full"><mat-label>Notes</mat-label>
+      <textarea matInput [formControl]="notes" rows="3" maxlength="4000" [readonly]="notesTask.pending()"></textarea>
+    </mat-form-field>
+    <button mat-flat-button [disabled]="notesTask.pending() || notes.pristine">Save notes</button>
+  </form>
+</section>

@@ -1,0 +1,54 @@
+
+<section class="tab-body">
+  <div class="section-title"><h2>Documents</h2>
+    <button mat-button type="button" [disabled]="read.pending() || uploadTask.pending()" (click)="refresh()">Refresh documents</button>
+  </div>
+  <app-feedback [loading]="read.pending() || downloadTask.pending()" [errors]="read.errors().concat(downloadTask.errors())" />
+  @if (downloadLink(); as link) {
+    <p><a [href]="link.url" target="_blank" rel="noopener noreferrer">Download {{ link.filename }}</a></p>
+  }
+  <form class="panel" [formGroup]="form" (ngSubmit)="upload(fileInput)">
+    <h3>Upload document</h3>
+    <label for="document-file">File</label>
+    <input id="document-file" #fileInput type="file" accept=".pdf,.jpeg,.jpg,.png,.docx,.xlsx,.txt,.csv"
+      [disabled]="uploadTask.pending()" (change)="choose(fileInput)">
+    @if (fileError()) { <p class="error" role="alert">{{ fileError() }}</p> }
+    <div class="fields">
+      <mat-form-field><mat-label>Document type</mat-label><input matInput formControlName="type" maxlength="100" required [readonly]="uploadTask.pending()"></mat-form-field>
+      <mat-form-field><mat-label>Notes</mat-label><input matInput formControlName="notes" maxlength="2000" [readonly]="uploadTask.pending()"></mat-form-field>
+    </div>
+    @if (uploadTask.pending()) {
+      @if (progress(); as percent) {
+        <mat-progress-bar mode="determinate" [value]="percent" aria-label="Upload progress" />
+        <p role="status">{{ percent }}% uploaded{{ percent === 100 ? ' · Waiting for the API' : '' }}</p>
+      } @else {
+        <mat-progress-bar mode="indeterminate" aria-label="Preparing upload" />
+      }
+    }
+    <app-feedback [errors]="uploadTask.errors()" />
+    @if (uploaded()) { <p class="success" role="status">{{ uploaded() }} uploaded.</p> }
+    <button mat-flat-button [disabled]="!file() || !form.controls.type.value.trim() || read.pending() || uploadTask.pending()">Upload</button>
+  </form>
+  @if (documents(); as entries) {
+    <div class="table-frame">
+      <table>
+        <caption class="visually-hidden">Claim documents</caption>
+        <thead><tr><th>Name</th><th>Type</th><th>Uploaded (UTC)</th><th>Uploader</th><th>Size</th><th>Download</th></tr></thead>
+        <tbody>
+          @for (entry of entries; track entry.id) {
+            <tr [class.highlight]="entry.id === relatedId()">
+              <td>{{ entry.fileName }} @if (entry.notes) { <div class="muted">{{ entry.notes }}</div> }</td>
+              <td>{{ entry.documentType }}</td><td>{{ entry.createdAt | date:'medium':'UTC' }}</td>
+              <td>{{ session.actorName(entry.uploadedByUserId) }}</td><td>{{ entry.sizeBytes | number }} B</td>
+              <td>
+                @if (entry.downloadUrl) {
+                  <button mat-button [disabled]="downloadTask.pending()" (click)="download(entry)">Download</button>
+                } @else { <span class="muted">Unavailable</span> }
+              </td>
+            </tr>
+          } @empty { <tr><td colspan="6">No documents uploaded.</td></tr> }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>

@@ -1,0 +1,146 @@
+
+<a routerLink="/claims" class="back-link">Claims</a>
+<div class="page-title"><h1>Log new claim</h1></div>
+<app-feedback [loading]="submission.pending()" [errors]="fieldIssues().flat().length ? [] : submission.errors()" />
+<mat-stepper linear>
+  <mat-step label="Policy & loss details" [stepControl]="details">
+    <div class="step-body">
+      <h2>Policy &amp; loss details</h2>
+      <app-feedback [errors]="fieldIssues()[0]" />
+      <section [formGroup]="details">
+        <mat-checkbox formControlName="unknown">Unknown policy</mat-checkbox>
+        @if (!details.controls.unknown.value) {
+          <app-policy-search (selection)="selectPolicy($event)" />
+          @if (policy(); as selected) {
+            <div class="feedback">
+              <strong>{{ selected.policyNumber }} · {{ selected.clientName }}</strong>
+              <p>{{ selected.effectiveDate }} to {{ selected.expirationDate }}</p>
+              @if (details.controls.lossDate.valid) {
+                @let badge = period(selected);
+                <span class="badge" [class.warning]="badge.warning" [class.success]="!badge.warning">{{ badge.label }}</span>
+              }
+              @if (loadingCoverage()) { <app-feedback [loading]="true" /> }
+              @if (coverage().length) { <p>Coverage: {{ coverage().join(', ') }}</p> }
+            </div>
+          } @else if (details.touched) {
+            <p class="error" role="alert">Select a policy or mark it as unknown.</p>
+          }
+        }
+        <app-feedback [loading]="reference.pending()" [errors]="reference.errors()" />
+        @if (reference.errors().length) { <button mat-button (click)="refreshCauses()">Retry causes</button> }
+        <div class="fields">
+          <mat-form-field><mat-label>Claim type</mat-label><input matInput formControlName="claimType" maxlength="50" required>
+            <mat-error>Enter a claim type.</mat-error>
+          </mat-form-field>
+          <mat-form-field><mat-label>Severity</mat-label><mat-select formControlName="severity">
+            @for (severity of severities; track severity) { <mat-option [value]="severity">{{ severity }}</mat-option> }
+          </mat-select></mat-form-field>
+          <mat-form-field><mat-label>Loss date and time</mat-label><input matInput type="datetime-local" formControlName="lossDate" required>
+            <mat-hint>Local time</mat-hint><mat-error>Enter a loss date and time in the past.</mat-error>
+          </mat-form-field>
+          <mat-form-field><mat-label>Find a cause of loss</mat-label><input matInput [formControl]="causesQuery"></mat-form-field>
+          <mat-form-field><mat-label>Cause of loss</mat-label><mat-select formControlName="causeOfLossCode" required>
+            @for (cause of filteredCauses(); track cause.code) { <mat-option [value]="cause.code">{{ cause.name }}</mat-option> }
+          </mat-select><mat-error>Select an active cause of loss.</mat-error></mat-form-field>
+          <mat-form-field><mat-label>Loss location</mat-label><input matInput formControlName="lossLocation" maxlength="500"></mat-form-field>
+          <mat-form-field><mat-label>Estimated loss amount (USD)</mat-label><input matInput inputmode="decimal" formControlName="estimatedLossAmount">
+            <mat-error>Enter a nonnegative amount with up to four decimal places.</mat-error>
+          </mat-form-field>
+          <mat-form-field><mat-label>Police report number</mat-label><input matInput formControlName="policeReportNumber" maxlength="100"></mat-form-field>
+        </div>
+        <mat-form-field class="full"><mat-label>Loss description</mat-label><textarea matInput formControlName="lossDescription" rows="3" required></textarea>
+          <mat-hint align="end">{{ details.controls.lossDescription.value.trim().length }} / 20 minimum</mat-hint>
+          <mat-error>Describe the loss in at least 20 characters.</mat-error>
+        </mat-form-field>
+      </section>
+      <div class="actions">
+        <a mat-button routerLink="/claims">Cancel</a>
+        <button mat-flat-button matStepperNext type="button" (click)="details.markAllAsTouched()">Continue</button>
+      </div>
+    </div>
+  </mat-step>
+  <mat-step label="Parties & risk objects" [stepControl]="claimantReady" [completed]="claimantReady.valid && !editingParty() && !editingRisk()">
+    <div class="step-body stack">
+      <app-feedback [errors]="fieldIssues()[1]" />
+      <div class="section-title"><h2>Parties</h2>
+        <button mat-stroked-button type="button" [disabled]="editingParty()" (click)="editingParty.set(true)">Add party</button>
+      </div>
+      @if (claimantReady.invalid) {
+        <p [class.error]="triedParties()">Add at least one claimant to continue.</p>
+      }
+      @for (party of parties(); track party; let index = $index) {
+        <div class="record-line"><span><strong>{{ partyName(party) }}</strong> · {{ party.role }} · {{ party.partyType }}</span>
+          <button mat-button type="button" (click)="updateParties(parties().slice(0, index).concat(parties().slice(index + 1)))">Remove</button>
+        </div>
+      }
+      @if (editingParty()) {
+        <app-party-form (saved)="updateParties(parties().concat($event))" (cancelled)="editingParty.set(false)" />
+      }
+      <div class="section-title"><h2>Risk objects</h2>
+        <button mat-stroked-button type="button" [disabled]="editingRisk()" (click)="openRisk()">Add risk object</button>
+      </div>
+      @for (risk of risks(); track risk; let index = $index) {
+        <div class="record-line"><span><strong>{{ risk.assetDescription }}</strong> · {{ risk.assetType }}</span>
+          <button mat-button type="button" (click)="risks.set(risks().slice(0, index).concat(risks().slice(index + 1)))">Remove</button>
+        </div>
+      } @empty { <p class="muted">You can continue without a risk object.</p> }
+      @if (editingRisk()) {
+        <form class="panel" [formGroup]="riskForm" (ngSubmit)="addRisk()">
+          <div class="fields">
+            <mat-form-field><mat-label>Asset type</mat-label><mat-select formControlName="assetType">
+              @for (type of assetTypes; track type) { <mat-option [value]="type">{{ type }}</mat-option> }
+            </mat-select></mat-form-field>
+            <mat-form-field><mat-label>Asset description</mat-label><input matInput maxlength="500" formControlName="assetDescription" required>
+              <mat-error>Describe the asset.</mat-error></mat-form-field>
+            <mat-form-field><mat-label>Asset reference</mat-label><input matInput maxlength="255" formControlName="assetReference"></mat-form-field>
+          </div>
+          <mat-form-field class="full"><mat-label>Damage description</mat-label><textarea matInput formControlName="damageDescription"></textarea></mat-form-field>
+          <mat-checkbox formControlName="isPrimary">Primary asset</mat-checkbox>
+          <div class="actions"><button mat-button type="button" (click)="editingRisk.set(false)">Cancel</button><button mat-flat-button>Add risk object</button></div>
+        </form>
+      }
+      <div class="actions">
+        <button mat-button matStepperPrevious type="button">Back</button>
+        <button mat-flat-button matStepperNext type="button" [disabled]="editingParty() || editingRisk()" (click)="triedParties.set(true)">Continue</button>
+      </div>
+    </div>
+  </mat-step>
+  <mat-step label="Initial reserve & review">
+    <div class="step-body">
+      <h2>Initial reserve</h2>
+      <app-feedback [errors]="fieldIssues()[2]" />
+      @if (policy()) {
+        <div [formGroup]="reserve" class="fields">
+          <mat-form-field><mat-label>Component</mat-label><mat-select formControlName="component">
+            @for (component of components; track component) { <mat-option [value]="component">{{ component }}</mat-option> }
+          </mat-select></mat-form-field>
+          <mat-form-field><mat-label>Optional amount (USD)</mat-label><input matInput formControlName="amount" inputmode="decimal">
+            <mat-hint>Leave blank to skip.</mat-hint>
+          </mat-form-field>
+        </div>
+        @if (reserveHint(); as hint) { <p [class.error]="reserveInvalid()" aria-live="polite">{{ hint }}</p> }
+      } @else { <p>Link a policy to add an initial reserve.</p> }
+      <h2>Review</h2>
+      @let loss = details.getRawValue();
+      <dl class="summary">
+        <dt>Policy</dt><dd>{{ policy()?.policyNumber || 'Unknown policy' }} {{ policy()?.clientName }}</dd>
+        <dt>Claim type</dt><dd>{{ loss.claimType }} · {{ loss.severity }}</dd>
+        <dt>Loss date</dt><dd>{{ loss.lossDate | date:'medium' }}</dd>
+        <dt>Cause of loss</dt><dd>{{ loss.causeOfLossCode }}</dd>
+        <dt>Description</dt><dd class="long-text">{{ loss.lossDescription }}</dd>
+        <dt>Location</dt><dd>{{ loss.lossLocation || '—' }}</dd>
+        <dt>Estimated loss</dt><dd>{{ (loss.estimatedLossAmount || null) | money }}</dd>
+        <dt>Police report number</dt><dd>{{ loss.policeReportNumber || '—' }}</dd>
+        <dt>Initial reserve</dt><dd>{{ reserve.controls.amount.value && policy() ? reserve.controls.component.value + ' · ' + (reserve.controls.amount.value | money) : 'None' }}</dd>
+        <dt>Parties</dt><dd>@for (party of parties(); track party) { <div>{{ partyName(party) }} · {{ party.role }} · {{ party.partyType }} {{ party.email }} {{ party.phone }} {{ party.notes }}</div> }</dd>
+        <dt>Risk objects</dt><dd>@for (risk of risks(); track risk) { <div>{{ risk.assetDescription }} · {{ risk.assetType }} {{ risk.damageDescription }} {{ risk.assetReference }} {{ risk.isPrimary ? '· Primary' : '' }}</div> } @empty { None }</dd>
+      </dl>
+      <div class="actions">
+        <button mat-button matStepperPrevious type="button" [disabled]="submission.pending()">Back</button>
+        <button mat-flat-button type="button" [disabled]="details.invalid || claimantReady.invalid || reserveInvalid() || submission.pending()" (click)="submit()">Create claim</button>
+      </div>
+    </div>
+  </mat-step>
+</mat-stepper>
+
+

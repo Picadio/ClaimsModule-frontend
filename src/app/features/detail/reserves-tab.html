@@ -1,0 +1,144 @@
+
+<section class="tab-body">
+  <div class="section-title">
+    <h2>Reserves</h2>
+    <div class="inline">
+      <button mat-button [disabled]="busy()" (click)="refresh()">Refresh reserves</button>
+      <button mat-stroked-button [disabled]="busy() || !canSubmit() || !available().length || !ledger()" (click)="begin('Add')">Add reserve</button>
+    </div>
+  </div>
+  <app-feedback [loading]="busy()" [errors]="loading.errors().concat(saving.errors())" />
+  @if (reservedWarnings().length) {
+    <ul class="feedback warning">
+      @for (warning of reservedWarnings(); track warning) { <li>{{ warning }}</li> }
+    </ul>
+  }
+  @if (!claim().policyId) {
+    <p>Link a policy in Overview to submit a reserve.</p>
+  } @else if (!canSubmit()) {
+    <p>Reserve changes require an active claim.</p>
+  }
+  @if (ledger(); as data) {
+    <div class="inline">
+      <p><strong>Approved total</strong> {{ data.totalReserves | money }}</p>
+      @if (data.reserveLimitOverrideEnabled) {
+        <span class="badge warning">Manager override enabled</span>
+      } @else if (canOverride()) {
+        <button mat-button [disabled]="busy()" (click)="startOverride()">Enable manager override</button>
+      }
+    </div>
+    <div class="fields cards">
+      @for (component of data.components; track component.id) {
+        <div class="panel reserve-card">
+          <h3>{{ component.component }}</h3>
+          <p>Approved <strong>{{ component.currentAmount | money }}</strong></p>
+          <p>Pending <strong [class.warning-text]="hasPending(component)">{{ component.pendingAmount | money }}</strong></p>
+          @if (canChangeBalance(component)) {
+            <div class="inline">
+              <button mat-button [disabled]="busy()" (click)="adjust(component, 'Adjust')">Adjust</button>
+              <button mat-button [disabled]="busy()" (click)="adjust(component, 'Reverse')">Reverse</button>
+            </div>
+          }
+        </div>
+      } @empty { <p class="muted">No reserve components yet.</p> }
+    </div>
+  }
+  @if (editing(); as change) {
+    <form class="panel subpanel" [formGroup]="form" (ngSubmit)="save()">
+      <h3>{{ change.replaces ? 'Revise rejected transaction' : change.type + ' reserve' }}</h3>
+      @if (change.replaces?.rejectionReason; as rejection) { <p>Rejection reason: {{ rejection }}</p> }
+      <div class="fields">
+        @if (change.component) { <p>{{ change.component.component }} · {{ change.type }}</p> }
+        @else {
+          <mat-form-field><mat-label>Component</mat-label><mat-select formControlName="component">
+            @for (type of available(); track type) { <mat-option [value]="type">{{ type }}</mat-option> }
+          </mat-select></mat-form-field>
+        }
+        <mat-form-field><mat-label>Change amount (USD)</mat-label>
+          <input matInput inputmode="decimal" formControlName="amount" required [readonly]="change.type === 'Reverse' || saving.pending()">
+          <mat-hint>Enter a signed change to the balance.</mat-hint>
+        </mat-form-field>
+      </div>
+      @if (amountError(); as error) { <p class="error" role="alert">{{ error }}</p> }
+      @if (amountHint(); as hint) { <p aria-live="polite">{{ hint }}</p> }
+      <mat-form-field class="full"><mat-label>Reason</mat-label>
+        <textarea matInput formControlName="reason" maxlength="500" required [readonly]="saving.pending()"></textarea>
+        <mat-error>Enter the reason for the reserve change.</mat-error>
+      </mat-form-field>
+      <div class="actions">
+        <button mat-button type="button" [disabled]="saving.pending()" (click)="editing.set(null)">Cancel</button>
+        <button mat-flat-button [disabled]="busy() || form.invalid || !form.controls.reason.value.trim() || !!amountError()">Submit reserve</button>
+      </div>
+    </form>
+  }
+  @if (rejecting(); as transaction) {
+    <form class="panel subpanel" (ngSubmit)="action(transaction, 'reject')">
+      <h3>Reject {{ transaction.component }} · {{ transaction.amount | money }}</h3>
+      <mat-form-field class="full"><mat-label>Rejection reason</mat-label>
+        <textarea matInput [formControl]="reason" required [readonly]="saving.pending()"></textarea>
+      </mat-form-field>
+      <div class="actions">
+        <button mat-button type="button" [disabled]="saving.pending()" (click)="rejecting.set(null)">Cancel</button>
+        <button mat-flat-button [disabled]="busy() || !reason.value.trim()">Review rejection</button>
+      </div>
+    </form>
+  }
+  @if (overriding()) {
+    <form class="panel subpanel" (ngSubmit)="override()">
+      <h3>Enable claim reserve override</h3>
+      <p>Allow a projected approved balance above $10,000,000 for this claim. The reason is recorded in Audit Log.</p>
+      <mat-form-field class="full"><mat-label>Override reason</mat-label>
+        <textarea matInput [formControl]="reason" required [readonly]="saving.pending()"></textarea>
+      </mat-form-field>
+      <div class="actions">
+        <button mat-button type="button" [disabled]="saving.pending()" (click)="overriding.set(false)">Cancel</button>
+        <button mat-flat-button [disabled]="busy() || !reason.value.trim()">Enable override</button>
+      </div>
+    </form>
+  }
+  @if (ledger()) {
+    <h3>Transaction history</h3>
+    <div class="table-frame">
+      <table>
+        <caption class="visually-hidden">Reserve transaction history</caption>
+        <thead><tr><th>Date (UTC)</th><th>Transaction</th><th class="numeric">Delta</th><th>Approval</th>
+          <th>Submitted by</th><th>Approved by</th><th>GL posting</th><th>Actions</th></tr></thead>
+        <tbody>
+          @for (entry of entries(); track entry.id) {
+            @let allowed = rights(entry);
+            <tr [class.highlight]="entry.id === relatedId()">
+              <td>{{ entry.createdAt | date:'short':'UTC' }}</td>
+              <td>
+                <strong>{{ entry.component }}</strong><div>{{ entry.transactionType }} · #{{ entry.changeSequence }}</div>
+                <div class="muted">{{ entry.changeReason }}</div>
+                @if (entry.replacesRejectedTransactionId) { <div class="muted">Revised submission</div> }
+              </td>
+              <td class="numeric" [class.delta-negative]="entry.amount.startsWith('-')" [class.delta-positive]="!entry.amount.startsWith('-')">{{ entry.amount | money }}</td>
+              <td>
+                <span class="badge" [class.warning]="entry.approvalStatus === 'PendingApproval'">{{ entry.approvalStatus }}</span>
+                @if (entry.approvalStatus === 'PendingApproval') {
+                  <div>{{ entry.requiredAuthority === 'Automatic' ? 'Supervisor' : entry.requiredAuthority }} review</div>
+                  @if (approvalBlocked(entry) && canSubmit()) { <div class="warning-text">Manager override required</div> }
+                }
+                @if (entry.rejectionReason) { <div class="muted">Rejected: {{ entry.rejectionReason }}</div> }
+              </td>
+              <td>{{ session.actorName(entry.submittedByUserId) }}</td>
+              <td>{{ session.actorName(entry.approvedByUserId, entry.approvalStatus === 'AutoApproved' ? 'Automatic' : '—') }}</td>
+              <td><span class="badge" [class.warning]="entry.postingStatus === 'Pending'" [class.error]="entry.postingStatus === 'Failed'">{{ entry.postingStatus }}</span></td>
+              <td>
+                @if (allowed.approve && !approvalBlocked(entry)) {
+                  <button mat-button [disabled]="busy()" (click)="action(entry, 'approve')">Approve</button>
+                }
+                @if (allowed.reject) { <button mat-button [disabled]="busy()" (click)="startReject(entry)">Reject</button> }
+                @if (allowed.retract) { <button mat-button [disabled]="busy()" (click)="action(entry, 'retract')">Retract</button> }
+                @if (revisable(entry)) { <button mat-button [disabled]="busy()" (click)="revision(entry)">Revise</button> }
+                @if (entry.postingStatus === 'Failed') { <button mat-button [disabled]="busy()" (click)="action(entry, 'retry-posting')">Retry GL</button> }
+              </td>
+            </tr>
+          } @empty { <tr><td colspan="8">No reserve transactions yet.</td></tr> }
+        </tbody>
+      </table>
+    </div>
+  }
+</section>
+

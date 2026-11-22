@@ -1,0 +1,54 @@
+
+<div class="page-title">
+  <h1>Claims</h1>
+  <a mat-flat-button routerLink="/claims/new">Log new claim</a>
+</div>
+<form class="panel" [formGroup]="form" (ngSubmit)="apply()" aria-label="Claim filters">
+  <div class="fields filters">
+    <mat-form-field><mat-label>Claim number or client</mat-label><input matInput formControlName="search" maxlength="255"></mat-form-field>
+    <mat-form-field><mat-label>Status</mat-label><mat-select formControlName="status" multiple>
+      @for (status of statuses; track status) { <mat-option [value]="status"><app-status-chip [status]="status" /></mat-option> }
+    </mat-select></mat-form-field>
+    <mat-form-field><mat-label>Loss date from</mat-label><input matInput type="date" formControlName="dateFrom"></mat-form-field>
+    <mat-form-field><mat-label>Loss date to</mat-label><input matInput type="date" formControlName="dateTo"></mat-form-field>
+    <mat-form-field><mat-label>Assigned handler</mat-label><input matInput formControlName="assignedHandlerName" maxlength="255"></mat-form-field>
+    <mat-form-field><mat-label>Cause of loss</mat-label><mat-select formControlName="causeOfLossCode">
+      <mat-option value="">All causes</mat-option>
+      @for (cause of causes(); track cause.code) { <mat-option [value]="cause.code">{{ cause.name }}</mat-option> }
+    </mat-select></mat-form-field>
+  </div>
+  @if (dateError(); as error) { <p class="error" role="alert">{{ error }}</p> }
+  <div class="actions">
+    <button mat-flat-button [disabled]="list.pending()">Apply filters</button>
+    <button mat-button type="button" [disabled]="list.pending()" (click)="clear()">Clear</button>
+  </div>
+</form>
+<app-feedback [loading]="reference.pending() || list.pending()" [errors]="reference.errors().concat(list.errors())" />
+@if (list.errors().length) { <button mat-button (click)="refresh()">Retry claims</button> }
+@if (reference.errors().length) { <button mat-button (click)="refreshCauses()">Retry causes</button> }
+@if (results(); as data) {
+  <div class="table-frame">
+    <table>
+      <caption class="visually-hidden">Claims matching the current filters</caption>
+      <thead><tr><th>Claim number</th><th>Policy</th><th>Client</th><th>Loss date (UTC)</th><th>Cause of loss</th><th>Status</th><th class="numeric">Approved reserves</th></tr></thead>
+      <tbody>
+        @for (claim of data.items; track claim.id) {
+          <tr class="linked-row" (click)="open(claim)">
+            <td><a [routerLink]="['/claims', claim.id]" (click)="$event.stopPropagation()">{{ claim.claimNumber }}</a></td>
+            <td>{{ claim.policyNumber || 'Unknown' }}</td>
+            <td>{{ claim.clientName || '—' }}</td>
+            <td>{{ claim.lossDate | date:'mediumDate':'UTC' }}</td>
+            <td>{{ causeLabel(claim.causeOfLossCode) }}</td>
+            <td><app-status-chip [status]="claim.status" /> @if (claim.isSlaBreached) { <span class="badge warning">SLA breached</span> }</td>
+            <td class="numeric">{{ claim.totalReserves | money }}</td>
+          </tr>
+        } @empty {
+          <tr><td colspan="7">No claims match these filters.</td></tr>
+        }
+      </tbody>
+    </table>
+    <mat-paginator aria-label="Claims pagination" [disabled]="list.pending()" [length]="data.totalCount" [pageIndex]="data.page - 1"
+      [pageSize]="data.pageSize" [pageSizeOptions]="[10, 20, 50, 100]" [showFirstLastButtons]="true" (page)="paginate($event)" />
+  </div>
+}
+

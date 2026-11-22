@@ -1,0 +1,41 @@
+
+<a routerLink="/claims" class="back-link">Claims</a>
+<app-feedback [loading]="loading() || reference.pending()" [errors]="errors().concat(reference.errors())" />
+@if (errors().length) { <button mat-button (click)="refresh()">Retry claim</button> }
+@if (reference.errors().length) { <button mat-button (click)="loadStatuses()">Retry transitions</button> }
+@if (claim(); as data) {
+  @if (created === data.claimNumber) { <p class="feedback success" role="status">Claim {{ data.claimNumber }} was created.</p> }
+  <header class="panel claim-header">
+    <div class="page-title">
+      <div class="inline"><h1>{{ data.claimNumber }}</h1><button mat-button (click)="copy(data.claimNumber)">Copy number</button></div>
+      <div class="inline"><app-status-chip [status]="data.status" /> @if (data.isSlaBreached) { <span class="badge warning">SLA breached</span> }</div>
+    </div>
+    <dl class="summary">
+      <dt>Policy</dt><dd>{{ data.policyNumber || 'Unknown' }}</dd>
+      <dt>Client</dt><dd>{{ data.clientName || '—' }}</dd>
+      <dt>Loss date (UTC)</dt><dd>{{ data.lossEvent.lossDate | date:'medium':'UTC' }}</dd>
+      <dt>Cause of loss</dt><dd>{{ data.lossEvent.causeOfLossCode }}</dd>
+      <dt>Assigned handler</dt><dd>{{ session.actorName(data.assignedHandlerId, 'Unassigned') }}</dd>
+    </dl>
+    <app-lifecycle [claim]="data" [references]="statusReferences()" [busy]="loading()"
+      (changed)="refresh()" />
+  </header>
+  <mat-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectTab($event)">
+    <mat-tab label="Overview"><ng-template matTabContent>
+      <app-overview-tab [claim]="data" (changed)="refresh()" />
+    </ng-template></mat-tab>
+    <mat-tab label="Parties"><ng-template matTabContent>
+      <app-parties-tab [claim]="data" [relatedId]="query().get('related')" (changed)="refresh()" />
+    </ng-template></mat-tab>
+    <mat-tab label="Reserves"><ng-template matTabContent>
+      <app-reserves-tab [claim]="data" [relatedId]="query().get('related')" (changed)="refresh()" />
+    </ng-template></mat-tab>
+    <mat-tab label="Documents"><ng-template matTabContent>
+      <app-documents-tab [claimId]="data.id" [relatedId]="query().get('related')" (changed)="refresh()" />
+    </ng-template></mat-tab>
+    <mat-tab label="Audit Log"><ng-template matTabContent>
+      <app-audit-tab [claimId]="data.id" />
+    </ng-template></mat-tab>
+  </mat-tab-group>
+}
+
