@@ -1,4 +1,3 @@
-
 import { expect, Page, test } from '@playwright/test';
 
 const claimId = '11111111-1111-4111-8111-111111111111';
@@ -27,6 +26,8 @@ async function interceptApi(page: Page) {
   let role = 'handler';
   let approvalStatus = '';
   let uploaded = false;
+  let validations = 0;
+  let creates = 0;
   const transaction = () => ({
     id: txnId, reserveId, component: 'Indemnity', transactionType: 'Add', amount: 15000,
     previousBalance: 0, newBalance: 15000, changeReason: 'Initial estimate', changeSequence: 1,
@@ -65,12 +66,19 @@ async function interceptApi(page: Page) {
     if (endpoint === '/api/claims/validate') {
       expect(request.postDataJSON().parties[0].role).toBe('Claimant');
       expect(request.headers()['idempotency-key']).toBeUndefined();
+      if (++validations === 1) {
+        return json({ errors: {
+          'LossEvent.LossDescription': ['Enter a more specific description.'],
+          'parties[0].email': ['This email cannot be used.'],
+        } }, 422);
+      }
       return json({ warnings: [warning], initialReserveApprovalStatus: null, initialReserveRequiredAuthority: null });
     }
     if (endpoint === '/api/claims' && method === 'GET') {
       return json({ items: [], page: 1, pageSize: 20, totalCount: 0 });
     }
     if (endpoint === '/api/claims' && method === 'POST') {
+      if (++creates === 1) return json({ errors: { Amount: ['Enter a different amount.'] } }, 422);
       const intake = request.postDataJSON();
       claim = {
         ...intake, id: claimId, claimNumber, status: 'Draft', policyNumber: policy.policyNumber,
@@ -158,9 +166,35 @@ test('creates a claim, opens it, approves a reserve as a second user, and audits
   await page.getByLabel('Last name').fill('Claimant');
   await page.getByRole('button', { name: 'Add party', exact: true }).last().click();
   await page.getByRole('button', { name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Create claim' }).click();
+  const description = page.getByLabel('Loss description');
+  const create = page.getByRole('button', { name: 'Create claim', exact: true });
+  await create.click();
+  await expect(page.locator('mat-form-field').filter({ has: description }).locator('mat-error'))
+    .toHaveText('Enter a more specific description.');
+  await expect(description).toHaveAttribute('aria-invalid', 'true');
+  await description.fill('Synthetic damage to a property after a fire in the storage area.');
+  await expect(page.getByText('Enter a more specific description.', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Continue' }).click();
+  await expect(page.getByText('Email: This email cannot be used.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByRole('button', { name: 'Add party', exact: true }).click();
+  await page.getByLabel('First name').fill('Sample');
+  await page.getByLabel('Last name').fill('Claimant');
+  await page.getByRole('button', { name: 'Add party', exact: true }).last().click();
+  await expect(page.getByText('This email cannot be used.', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Continue' }).click();
+
+  const initialAmount = page.getByLabel('Optional amount (USD)');
+  await initialAmount.fill('100');
   const warning = page.getByRole('dialog');
+  await create.click();
   await expect(warning.getByText('No risk objects were reported.')).toBeVisible();
+  await warning.getByRole('button', { name: 'Create claim' }).click();
+  await expect(page.locator('mat-form-field').filter({ has: initialAmount }).locator('mat-error'))
+    .toHaveText('Enter a different amount.');
+  await initialAmount.clear();
+  await expect(page.getByText('Enter a different amount.', { exact: true })).toHaveCount(0);
+  await create.click();
   await warning.getByRole('button', { name: 'Create claim' }).click();
   await expect(page.getByRole('heading', { name: claimNumber })).toBeVisible();
   await page.getByRole('button', { name: 'Change status' }).click();
@@ -207,5 +241,3 @@ test('creates a claim, opens it, approves a reserve as a second user, and audits
   await expect(page.getByRole('tab', { name: 'Documents' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('row').filter({ hasText: 'loss.txt' })).toHaveClass('highlight');
 });
-
-

@@ -1,10 +1,10 @@
-
 import { DatePipe } from '@angular/common';
-import { Component, DestroyRef, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, DestroyRef, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
+import { ErrorStateMatcher } from '@angular/material/core';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -12,7 +12,7 @@ import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { MatStepper, MatStepperModule } from '@angular/material/stepper';
 import { Router, RouterLink } from '@angular/router';
-import { catchError, EMPTY, of, Subject, switchMap } from 'rxjs';
+import { catchError, EMPTY, of, Subject, switchMap, throwError } from 'rxjs';
 import { ApiError } from '../core/api-error';
 import { ClaimsApi } from '../core/claims-api';
 import {
@@ -32,6 +32,27 @@ function pastDate(control: AbstractControl<string>) {
   return Number.isFinite(timestamp) && timestamp <= Date.now() ? null : { pastDate: true };
 }
 
+const partyLabels: Readonly<Record<string, string>> = {
+  role: 'Role', partytype: 'Party type', firstname: 'First name', lastname: 'Last name',
+  companyname: 'Company name', email: 'Email', phone: 'Phone', notes: 'Party notes',
+};
+
+const riskLabels: Readonly<Record<string, string>> = {
+  assettype: 'Asset type', assetdescription: 'Asset description', assetreference: 'Asset reference',
+  damagedescription: 'Damage description', isprimary: 'Primary asset',
+};
+
+function fieldPath(field: string): string {
+  const path = field.toLowerCase().replace(/^(?:\$(?:\.)?|request\.)+/, '');
+  return path === 'amount' || path === 'component' ? 'initialreserve.' + path : path;
+}
+
+function issueStep(path: string): number {
+  if (/^(lossevent|policyid|claimtype|severity)\b/.test(path)) return 0;
+  if (/^(parties|riskobjects)\b/.test(path)) return 1;
+  return 2;
+}
+
 @Component({
   imports: [
     DatePipe, RouterLink, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule,
@@ -47,7 +68,23 @@ export class Fnol {
   private readonly fb = inject(FormBuilder).nonNullable;
   protected readonly reference = new Operation();
   protected readonly submission = new Operation();
-  protected readonly fieldIssues = signal<string[][]>([[], [], []]);
+  private readonly serverIssues = signal<Record<string, string[]>>({});
+  protected readonly fieldIssues = computed(() => {
+    const steps: string[][] = [[], [], []];
+    for (const [field, messages] of Object.entries(this.serverIssues())) {
+      steps[issueStep(field)].push(...messages);
+    }
+    return steps;
+  });
+  private readonly controlPaths = new Map<AbstractControl, string>();
+  private readonly defaultMatcher = inject(ErrorStateMatcher);
+  private revision = 0;
+  protected readonly serverErrorMatcher: ErrorStateMatcher = {
+    isErrorState: (control, form) => {
+      const path = control && this.controlPaths.get(control);
+      return !!(path && this.fieldError(path)) || this.defaultMatcher.isErrorState(control, form);
+    },
+  };
   private readonly stepper = viewChild(MatStepper);
   protected readonly causes = signal<Cause[]>([]);
   protected readonly policy = signal<Policy | null>(null);
@@ -96,7 +133,17 @@ export class Fnol {
   constructor() {
     this.refreshCauses();
     const destroyRef = inject(DestroyRef);
+    for (const [name, control] of Object.entries(this.details.controls)) {
+      if (name === 'unknown' || name === 'policyReady') continue;
+      const field = name === 'claimType' || name === 'severity' ? name : 'LossEvent.' + name;
+      this.watchControl(control, field, destroyRef);
+    }
+    for (const [name, control] of Object.entries(this.reserve.controls)) {
+      this.watchControl(control, 'InitialReserve.' + name, destroyRef);
+    }
     this.details.controls.unknown.valueChanges.pipe(takeUntilDestroyed(destroyRef)).subscribe(unknown => {
+      this.clearIssues('policyid');
+      this.clearIssues('initialreserve', true);
       if (unknown) {
         this.selectPolicy(null);
         this.reserve.reset();
@@ -128,6 +175,8 @@ export class Fnol {
   }
 
   protected selectPolicy(policy: Policy | null): void {
+    this.clearIssues('policyid');
+    this.clearIssues('initialreserve', true);
     this.policy.set(policy);
     this.details.controls.policyReady.setValue(this.details.controls.unknown.value || policy !== null);
     this.selectedPolicies.next(policy);
@@ -138,6 +187,7 @@ export class Fnol {
   }
 
   protected updateParties(parties: PartyInput[]): void {
+    this.clearIssues('parties', true);
     this.parties.set(parties);
     this.claimantReady.setValue(parties.some(party => party.role === 'Claimant'));
     this.editingParty.set(false);
@@ -154,12 +204,50 @@ export class Fnol {
       return;
     }
     const form = this.riskForm.getRawValue();
-    this.risks.update(risks => [...risks, {
+    this.updateRisks([...this.risks(), {
       assetType: form.assetType, assetDescription: form.assetDescription.trim(),
       damageDescription: form.damageDescription.trim() || null,
       assetReference: form.assetReference.trim() || null, isPrimary: form.isPrimary,
     }]);
     this.editingRisk.set(false);
+  }
+
+  protected updateRisks(risks: RiskInput[]): void {
+    this.clearIssues('riskobjects', true);
+    this.risks.set(risks);
+  }
+
+  protected fieldError(field: string): string {
+    return this.serverIssues()[fieldPath(field)]?.join(' ') ?? '';
+  }
+
+  protected rowErrors(collection: 'parties' | 'riskobjects', index: number): string[] {
+    const prefix = collection + '[' + index + '].';
+    const labels = collection === 'parties' ? partyLabels : riskLabels;
+    return Object.entries(this.serverIssues()).flatMap(([field, messages]) => {
+      const name = field.slice(prefix.length);
+      return field.startsWith(prefix) && Object.hasOwn(labels, name)
+        ? messages.map(message => labels[name] + ': ' + message)
+        : [];
+    });
+  }
+
+  private watchControl(control: AbstractControl, field: string, destroyRef: DestroyRef): void {
+    const path = fieldPath(field);
+    this.controlPaths.set(control, path);
+    control.valueChanges.pipe(takeUntilDestroyed(destroyRef)).subscribe(() => {
+      this.clearIssues(path);
+      if (path.startsWith('lossevent.')) this.clearIssues('lossevent');
+      if (path.startsWith('initialreserve.')) this.clearIssues('initialreserve');
+      if (path === 'initialreserve.component') this.clearIssues('initialreserve.amount');
+    });
+  }
+
+  private clearIssues(field: string, descendants = false): void {
+    this.revision++;
+    this.serverIssues.update(issues => Object.fromEntries(Object.entries(issues).filter(([path]) =>
+      path !== field && !(descendants && (path.startsWith(field + '.') || path.startsWith(field + '['))),
+    )));
   }
 
   protected reserveHint(): string {
@@ -192,7 +280,8 @@ export class Fnol {
       this.triedParties.set(true);
       return;
     }
-    this.fieldIssues.set([[], [], []]);
+    this.serverIssues.set({});
+    const submittedRevision = this.revision;
     const form = this.details.getRawValue();
     const reserve = this.reserve.getRawValue();
     const amount = moneyUnits(reserve.amount);
@@ -215,32 +304,48 @@ export class Fnol {
     };
 
     this.submission.run(this.api.validate(request).pipe(
-      switchMap(validation => validation.warnings.length
-        ? this.dialogs.open(Confirm, { data: {
-          title: 'Create claim with warnings?',
-          messages: validation.warnings.map(warning => warning.message),
-          action: 'Create claim',
-        } }).afterClosed()
-        : of(true)),
-      switchMap(confirmed => confirmed ? this.api.create(request) : EMPTY),
+      switchMap(validation => {
+        if (submittedRevision !== this.revision) return this.changedDuringSubmission();
+        return validation.warnings.length
+          ? this.dialogs.open(Confirm, { data: {
+            title: 'Create claim with warnings?',
+            messages: validation.warnings.map(warning => warning.message),
+            action: 'Create claim',
+          } }).afterClosed()
+          : of(true);
+      }),
+      switchMap(confirmed => {
+        if (!confirmed) return EMPTY;
+        return submittedRevision === this.revision ? this.api.create(request) : this.changedDuringSubmission();
+      }),
     ), created => {
       this.snackbar.open('Claim ' + created.claimNumber + ' was created.', 'Dismiss', { duration: 6000 });
       void this.router.navigate(['/claims', created.id], { state: { created: created.claimNumber } });
-    }, error => this.showFieldErrors(error));
+    }, error => this.showFieldErrors(error, submittedRevision));
   }
 
-  private showFieldErrors(error: unknown): void {
-    if (!(error instanceof ApiError)) return;
-    const grouped: string[][] = [[], [], []];
-    for (const [field, messages] of Object.entries(error.fields)) {
-      const step = /^(lossEvent|policyId|claimType|severity)\b/i.test(field) ? 0
-        : /^(parties|riskObjects)\b/i.test(field) ? 1 : 2;
-      grouped[step].push(...messages);
+  private changedDuringSubmission() {
+    return throwError(() => new Error('The form changed during submission. Review your changes and try again.'));
+  }
+
+  private showFieldErrors(error: unknown, submittedRevision: number): void {
+    if (!(error instanceof ApiError) || error.status !== 422) return;
+    if (submittedRevision !== this.revision) {
+      this.submission.errors.set(['The form changed during submission. Review your changes and try again.']);
+      return;
     }
-    this.fieldIssues.set(grouped);
-    const first = grouped.findIndex(messages => messages.length > 0);
+
+    const issues: Record<string, string[]> = Object.create(null);
+    for (const [field, messages] of Object.entries(error.fields)) {
+      if (!messages.length) continue;
+      const path = fieldPath(field);
+      issues[path] = [...(issues[path] ?? []), ...messages];
+    }
+    if (!Object.keys(issues).length) return;
+    this.serverIssues.set(issues);
+    this.submission.errors.set([]);
+    const first = this.fieldIssues().findIndex(messages => messages.length > 0);
     const stepper = this.stepper();
     if (first !== -1 && stepper) stepper.selectedIndex = first;
   }
 }
-

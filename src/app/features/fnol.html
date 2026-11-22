@@ -1,7 +1,6 @@
-
 <a routerLink="/claims" class="back-link">Claims</a>
 <div class="page-title"><h1>Log new claim</h1></div>
-<app-feedback [loading]="submission.pending()" [errors]="fieldIssues().flat().length ? [] : submission.errors()" />
+<app-feedback [loading]="submission.pending()" [errors]="submission.errors()" />
 <mat-stepper linear>
   <mat-step label="Policy & loss details" [stepControl]="details">
     <div class="step-body">
@@ -9,8 +8,11 @@
       <app-feedback [errors]="fieldIssues()[0]" />
       <section [formGroup]="details">
         <mat-checkbox formControlName="unknown">Unknown policy</mat-checkbox>
+        @if (details.controls.unknown.value && fieldError('PolicyId')) {
+          <p class="error" role="alert">{{ fieldError('PolicyId') }}</p>
+        }
         @if (!details.controls.unknown.value) {
-          <app-policy-search (selection)="selectPolicy($event)" />
+          <app-policy-search [serverError]="fieldError('PolicyId')" (selection)="selectPolicy($event)" />
           @if (policy(); as selected) {
             <div class="feedback">
               <strong>{{ selected.policyNumber }} · {{ selected.clientName }}</strong>
@@ -29,28 +31,31 @@
         <app-feedback [loading]="reference.pending()" [errors]="reference.errors()" />
         @if (reference.errors().length) { <button mat-button (click)="refreshCauses()">Retry causes</button> }
         <div class="fields">
-          <mat-form-field><mat-label>Claim type</mat-label><input matInput formControlName="claimType" maxlength="50" required>
-            <mat-error>Enter a claim type.</mat-error>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Claim type</mat-label><input matInput formControlName="claimType" [errorStateMatcher]="serverErrorMatcher" maxlength="50" required>
+            <mat-error>{{ fieldError('ClaimType') || 'Enter a claim type.' }}</mat-error>
           </mat-form-field>
-          <mat-form-field><mat-label>Severity</mat-label><mat-select formControlName="severity">
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Severity</mat-label><mat-select formControlName="severity" [errorStateMatcher]="serverErrorMatcher">
             @for (severity of severities; track severity) { <mat-option [value]="severity">{{ severity }}</mat-option> }
-          </mat-select></mat-form-field>
-          <mat-form-field><mat-label>Loss date and time</mat-label><input matInput type="datetime-local" formControlName="lossDate" required>
-            <mat-hint>Local time</mat-hint><mat-error>Enter a loss date and time in the past.</mat-error>
+          </mat-select>
+            <mat-error>{{ fieldError('Severity') }}</mat-error></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Loss date and time</mat-label><input matInput type="datetime-local" formControlName="lossDate" [errorStateMatcher]="serverErrorMatcher" required>
+            <mat-hint>Local time</mat-hint><mat-error>{{ fieldError('LossEvent.lossDate') || 'Enter a loss date and time in the past.' }}</mat-error>
           </mat-form-field>
           <mat-form-field><mat-label>Find a cause of loss</mat-label><input matInput [formControl]="causesQuery"></mat-form-field>
-          <mat-form-field><mat-label>Cause of loss</mat-label><mat-select formControlName="causeOfLossCode" required>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Cause of loss</mat-label><mat-select formControlName="causeOfLossCode" [errorStateMatcher]="serverErrorMatcher" required>
             @for (cause of filteredCauses(); track cause.code) { <mat-option [value]="cause.code">{{ cause.name }}</mat-option> }
-          </mat-select><mat-error>Select an active cause of loss.</mat-error></mat-form-field>
-          <mat-form-field><mat-label>Loss location</mat-label><input matInput formControlName="lossLocation" maxlength="500"></mat-form-field>
-          <mat-form-field><mat-label>Estimated loss amount (USD)</mat-label><input matInput inputmode="decimal" formControlName="estimatedLossAmount">
-            <mat-error>Enter a nonnegative amount with up to four decimal places.</mat-error>
+          </mat-select><mat-error>{{ fieldError('LossEvent.causeOfLossCode') || 'Select an active cause of loss.' }}</mat-error></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Loss location</mat-label><input matInput formControlName="lossLocation" [errorStateMatcher]="serverErrorMatcher" maxlength="500">
+            <mat-error>{{ fieldError('LossEvent.lossLocation') }}</mat-error></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Estimated loss amount (USD)</mat-label><input matInput inputmode="decimal" formControlName="estimatedLossAmount" [errorStateMatcher]="serverErrorMatcher">
+            <mat-error>{{ fieldError('LossEvent.estimatedLossAmount') || 'Enter a nonnegative amount with up to four decimal places.' }}</mat-error>
           </mat-form-field>
-          <mat-form-field><mat-label>Police report number</mat-label><input matInput formControlName="policeReportNumber" maxlength="100"></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Police report number</mat-label><input matInput formControlName="policeReportNumber" [errorStateMatcher]="serverErrorMatcher" maxlength="100">
+            <mat-error>{{ fieldError('LossEvent.policeReportNumber') }}</mat-error></mat-form-field>
         </div>
-        <mat-form-field class="full"><mat-label>Loss description</mat-label><textarea matInput formControlName="lossDescription" rows="3" required></textarea>
+        <mat-form-field subscriptSizing="dynamic" class="full"><mat-label>Loss description</mat-label><textarea matInput formControlName="lossDescription" [errorStateMatcher]="serverErrorMatcher" rows="3" required></textarea>
           <mat-hint align="end">{{ details.controls.lossDescription.value.trim().length }} / 20 minimum</mat-hint>
-          <mat-error>Describe the loss in at least 20 characters.</mat-error>
+          <mat-error>{{ fieldError('LossEvent.lossDescription') || 'Describe the loss in at least 20 characters.' }}</mat-error>
         </mat-form-field>
       </section>
       <div class="actions">
@@ -72,6 +77,7 @@
         <div class="record-line"><span><strong>{{ partyName(party) }}</strong> · {{ party.role }} · {{ party.partyType }}</span>
           <button mat-button type="button" (click)="updateParties(parties().slice(0, index).concat(parties().slice(index + 1)))">Remove</button>
         </div>
+        <app-feedback [errors]="rowErrors('parties', index)" />
       }
       @if (editingParty()) {
         <app-party-form (saved)="updateParties(parties().concat($event))" (cancelled)="editingParty.set(false)" />
@@ -81,8 +87,9 @@
       </div>
       @for (risk of risks(); track risk; let index = $index) {
         <div class="record-line"><span><strong>{{ risk.assetDescription }}</strong> · {{ risk.assetType }}</span>
-          <button mat-button type="button" (click)="risks.set(risks().slice(0, index).concat(risks().slice(index + 1)))">Remove</button>
+          <button mat-button type="button" (click)="updateRisks(risks().slice(0, index).concat(risks().slice(index + 1)))">Remove</button>
         </div>
+        <app-feedback [errors]="rowErrors('riskobjects', index)" />
       } @empty { <p class="muted">You can continue without a risk object.</p> }
       @if (editingRisk()) {
         <form class="panel" [formGroup]="riskForm" (ngSubmit)="addRisk()">
@@ -111,12 +118,13 @@
       <app-feedback [errors]="fieldIssues()[2]" />
       @if (policy()) {
         <div [formGroup]="reserve" class="fields">
-          <mat-form-field><mat-label>Component</mat-label><mat-select formControlName="component">
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Component</mat-label><mat-select formControlName="component" [errorStateMatcher]="serverErrorMatcher">
             @for (component of components; track component) { <mat-option [value]="component">{{ component }}</mat-option> }
-          </mat-select></mat-form-field>
-          <mat-form-field><mat-label>Optional amount (USD)</mat-label><input matInput formControlName="amount" inputmode="decimal">
+          </mat-select>
+            <mat-error>{{ fieldError('InitialReserve.Component') }}</mat-error></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic"><mat-label>Optional amount (USD)</mat-label><input matInput formControlName="amount" [errorStateMatcher]="serverErrorMatcher" inputmode="decimal">
             <mat-hint>Leave blank to skip.</mat-hint>
-          </mat-form-field>
+            <mat-error>{{ fieldError('InitialReserve.Amount') }}</mat-error></mat-form-field>
         </div>
         @if (reserveHint(); as hint) { <p [class.error]="reserveInvalid()" aria-live="polite">{{ hint }}</p> }
       } @else { <p>Link a policy to add an initial reserve.</p> }
@@ -142,5 +150,3 @@
     </div>
   </mat-step>
 </mat-stepper>
-
-

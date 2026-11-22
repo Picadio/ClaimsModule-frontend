@@ -1,8 +1,8 @@
-
-import { Component, DestroyRef, inject, output, signal } from '@angular/core';
+import { Component, DestroyRef, inject, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
+import { ErrorStateMatcher } from '@angular/material/core';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { catchError, finalize, of, switchMap, timer } from 'rxjs';
@@ -15,9 +15,9 @@ import { Feedback } from './feedback';
   selector: 'app-policy-search',
   imports: [Feedback, ReactiveFormsModule, MatAutocompleteModule, MatFormFieldModule, MatInputModule],
   template: `
-    <mat-form-field class="full">
+    <mat-form-field class="full" [subscriptSizing]="serverError() ? 'dynamic' : 'fixed'">
       <mat-label>Policy number or client name</mat-label>
-      <input matInput [formControl]="query" [matAutocomplete]="menu" maxlength="255">
+      <input matInput [formControl]="query" [matAutocomplete]="menu" [errorStateMatcher]="serverErrorMatcher" maxlength="255">
       <mat-autocomplete #menu="matAutocomplete" [displayWith]="display">
         @for (policy of results(); track policy.policyId) {
           <mat-option [value]="policy">{{ policy.policyNumber }} · {{ policy.clientName }}</mat-option>
@@ -26,11 +26,14 @@ import { Feedback } from './feedback';
           <mat-option disabled>No policies found</mat-option>
         }
       </mat-autocomplete>
+      <mat-error>{{ serverError() }}</mat-error>
     </mat-form-field>
     <app-feedback [loading]="loading()" [errors]="errors()" />
   `,
 })
 export class PolicySearch {
+  readonly serverError = input('');
+  protected readonly serverErrorMatcher: ErrorStateMatcher = { isErrorState: () => !!this.serverError() };
   readonly selection = output<Policy | null>();
   protected readonly query = new FormControl<Policy | string>('', { nonNullable: true });
   protected readonly results = signal<Policy[]>([]);
