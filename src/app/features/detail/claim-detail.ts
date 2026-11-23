@@ -38,6 +38,7 @@ export class ClaimDetailPage {
   private readonly refreshes = new BehaviorSubject(0);
   protected readonly session = inject(Session);
   protected readonly reference = new Operation();
+  protected readonly userReference = new Operation();
   protected readonly statusReferences = signal<StatusReference[]>([]);
   protected readonly claim = signal<ClaimDetail | null>(null);
   protected readonly loading = signal(true);
@@ -47,6 +48,7 @@ export class ClaimDetailPage {
 
   constructor() {
     this.loadStatuses();
+    this.loadUsers();
     combineLatest([this.route.paramMap.pipe(map(params => params.get('id')!)), this.refreshes]).pipe(
       switchMap(([id]) => {
         if (this.claim()?.id !== id) this.claim.set(null);
@@ -67,6 +69,11 @@ export class ClaimDetailPage {
 
   protected loadStatuses(): void {
     this.reference.run(this.api.statuses(), statuses => this.statusReferences.set(statuses));
+  }
+
+  protected loadUsers(): void {
+    const identity = this.session.identity();
+    this.userReference.run(this.api.users(), users => this.session.setDirectory(identity, users));
   }
 
   protected refresh(): void {

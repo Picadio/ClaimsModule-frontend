@@ -20,8 +20,22 @@
       }
     }
     @if (assign()) {
-      @if (handler()) { <p>Assign this claim to the demo handler.</p> }
-      @else { <p class="error">Sign in as the handler to open this unassigned claim.</p> }
+      @if (chooseHandler()) {
+        <mat-form-field>
+          <mat-label>Assigned handler</mat-label>
+          <mat-select [value]="handler()" (selectionChange)="selectedHandler.set($event.value)">
+            @for (user of handlers(); track user.userId) {
+              <mat-option [value]="user.userId">{{ user.displayName }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      } @else if (handler(); as id) {
+        <p>Assign this claim to {{ session.actorName(id) }}.</p>
+      } @else if (directoryPending()) {
+        <p>Loading the handler directory.</p>
+      } @else {
+        <p class="error">No handler is available to assign.</p>
+      }
     }
     @if (mustAcknowledge()) {
       <div><mat-checkbox formControlName="acknowledge">I acknowledge the loss date is outside the policy period.</mat-checkbox></div>

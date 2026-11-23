@@ -1,8 +1,10 @@
 
 <a routerLink="/claims" class="back-link">Claims</a>
-<app-feedback [loading]="loading() || reference.pending()" [errors]="errors().concat(reference.errors())" />
+<app-feedback [loading]="loading() || reference.pending() || userReference.pending()"
+  [errors]="errors().concat(reference.errors(), userReference.errors())" />
 @if (errors().length) { <button mat-button (click)="refresh()">Retry claim</button> }
 @if (reference.errors().length) { <button mat-button (click)="loadStatuses()">Retry transitions</button> }
+@if (userReference.errors().length) { <button mat-button (click)="loadUsers()">Retry user directory</button> }
 @if (claim(); as data) {
   @if (created === data.claimNumber) { <p class="feedback success" role="status">Claim {{ data.claimNumber }} was created.</p> }
   <header class="panel claim-header">
@@ -18,6 +20,7 @@
       <dt>Assigned handler</dt><dd>{{ session.actorName(data.assignedHandlerId, 'Unassigned') }}</dd>
     </dl>
     <app-lifecycle [claim]="data" [references]="statusReferences()" [busy]="loading()"
+      [directoryUnavailable]="userReference.errors().length > 0"
       (changed)="refresh()" />
   </header>
   <mat-tab-group [selectedIndex]="selectedTab()" (selectedIndexChange)="selectTab($event)">

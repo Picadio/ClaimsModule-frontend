@@ -3,6 +3,7 @@ import { expect, Page, test } from '@playwright/test';
 const claimId = '11111111-1111-4111-8111-111111111111';
 const handlerId = '22222222-2222-4222-8222-222222222222';
 const supervisorId = '33333333-3333-4333-8333-333333333333';
+const managerId = '88888888-8888-4888-8888-888888888888';
 const reserveId = '44444444-4444-4444-8444-444444444444';
 const txnId = '55555555-5555-4555-8555-555555555555';
 const fileId = '66666666-6666-4666-8666-666666666666';
@@ -11,7 +12,7 @@ const claimNumber = 'CLM-2026-0000001';
 const instant = '2025-06-02T10:00:00Z';
 const path = '/api/claims/' + claimId;
 
-async function interceptApi(page: Page) {
+async function interceptApi(page: Page, existingDraft = false) {
   const policy = {
     policyId, policyNumber: 'POL-100', clientName: 'Meridian', effectiveDate: '2025-01-01',
     expirationDate: '2025-12-31', status: 'Active', coverageTypes: ['Property'],
@@ -22,9 +23,21 @@ async function interceptApi(page: Page) {
     createdAt: instant, uploadedByUserId: supervisorId, downloadUrl: path + '/documents/' + fileId + '/download',
   };
 
-  let claim: Record<string, unknown> | null = null;
-  let role = 'handler';
-  let approvalStatus = '';
+  const users = [
+    { userId: handlerId, displayName: 'Claims Handler', role: 'handler' },
+    { userId: supervisorId, displayName: 'Claims Supervisor', role: 'supervisor' },
+    { userId: managerId, displayName: 'Claims Manager', role: 'manager' },
+  ];
+  let claim: Record<string, unknown> | null = existingDraft ? {
+    id: claimId, claimNumber, status: 'Draft', policyId, policyNumber: policy.policyNumber,
+    clientName: policy.clientName, claimType: 'Property', severity: 'Standard', reportedAt: instant,
+    lossEvent: { lossDate: instant, causeOfLossCode: 'COL-FIRE', lossDescription: 'Synthetic property loss' },
+    parties: [], riskObjects: [], warnings: [], notes: null, assignedHandlerId: null, reserveBalances: [],
+  } : null;
+  let role = users[0];
+  let approvalStatus = existingDraft ? 'PendingApproval' : '';
+  let rejectionReason: string | undefined;
+  let overrideEnabled = false;
   let uploaded = false;
   let validations = 0;
   let creates = 0;
@@ -32,7 +45,8 @@ async function interceptApi(page: Page) {
     id: txnId, reserveId, component: 'Indemnity', transactionType: 'Add', amount: 15000,
     previousBalance: 0, newBalance: 15000, changeReason: 'Initial estimate', changeSequence: 1,
     approvalStatus, requiredAuthority: 'Supervisor', requiresManagerOverride: false,
-    postingStatus: approvalStatus === 'Approved' ? 'Posted' : 'Pending', postingKey: 'reserve-key', postingJobId: null,
+    postingStatus: approvalStatus === 'Approved' ? 'Posted' : approvalStatus === 'Rejected' ? 'Cancelled' : 'Pending',
+    postingKey: 'reserve-key', postingJobId: null, rejectionReason,
     submittedByUserId: handlerId, approvedByUserId: approvalStatus === 'Approved' ? supervisorId : undefined,
     createdAt: instant, approvedAt: approvalStatus === 'Approved' ? instant : null, warnings: [],
   });
@@ -45,12 +59,12 @@ async function interceptApi(page: Page) {
 
     if (endpoint === '/api/auth/demo-token') {
       expect(request.headers()['authorization']).toBeUndefined();
-      role = request.postDataJSON().username;
-      return json({ accessToken: role + '-test-token', expiresIn: 3600, tokenType: 'Bearer' });
+      role = users.find(user => user.role === request.postDataJSON().username)!;
+      return json({ accessToken: role.role + '-test-token', expiresIn: 3600, tokenType: 'Bearer' });
     }
-    expect(request.headers()['authorization']).toBe('Bearer ' + role + '-test-token');
+    expect(request.headers()['authorization']).toBe('Bearer ' + role.role + '-test-token');
     if (endpoint === '/api/auth/me') {
-      return json({ userId: role === 'handler' ? handlerId : supervisorId, organizationEntityId: policyId, role });
+      return json({ userId: role.userId, organizationEntityId: policyId, role: role.role });
     }
     if (method !== 'GET' && endpoint !== '/api/claims/validate') {
       expect(request.headers()['idempotency-key']).toBeTruthy();
@@ -61,6 +75,7 @@ async function interceptApi(page: Page) {
     if (endpoint === '/api/reference/claim-statuses') {
       return json([{ status: 'Draft', allowedTransitions: ['Open'] }, { status: 'Open', allowedTransitions: ['UnderInvestigation'] }]);
     }
+    if (endpoint === '/api/reference/users') return json(users);
     if (endpoint === '/api/policies/search') return json([policy]);
     if (endpoint === '/api/policies/' + policyId + '/coverage') return json({ policyId, coverageTypes: ['Property'] });
     if (endpoint === '/api/claims/validate') {
@@ -89,6 +104,11 @@ async function interceptApi(page: Page) {
       return json({ id: claimId, claimNumber, status: 'Draft', warnings: [warning] }, 201);
     }
     if (endpoint === path && method === 'GET' && claim) return json(claim);
+    if (endpoint === path + '/notes' && claim && method === 'PUT') {
+      expect(request.postDataJSON()).toEqual({ notes: 'Synthetic notes' });
+      claim.notes = request.postDataJSON().notes;
+      return json({ claimId, notes: claim.notes });
+    }
     if (endpoint === path + '/status' && claim) {
       expect(request.postDataJSON()).toMatchObject({ targetStatus: 'Open', assignedHandlerId: handlerId });
       claim = { ...claim, status: 'Open', assignedHandlerId: handlerId };
@@ -96,10 +116,10 @@ async function interceptApi(page: Page) {
     }
     if (endpoint === path + '/reserves' && method === 'GET') {
       const ledger = {
-        claimId, totalReserves: approvalStatus === 'Approved' ? 15000 : 0, reserveLimitOverrideEnabled: false,
+        claimId, totalReserves: approvalStatus === 'Approved' ? 15000 : 0, reserveLimitOverrideEnabled: overrideEnabled,
         components: approvalStatus ? [{
           id: reserveId, component: 'Indemnity', currentAmount: approvalStatus === 'Approved' ? 15000 : 0,
-          pendingAmount: approvalStatus === 'Approved' ? 0 : 15000, history: [transaction()],
+          pendingAmount: approvalStatus === 'PendingApproval' ? 15000 : 0, history: [transaction()],
         }] : [],
       };
       return route.fulfill({
@@ -113,9 +133,22 @@ async function interceptApi(page: Page) {
       return json(transaction(), 201);
     }
     if (endpoint === path + '/reserves/' + txnId + '/approve') {
-      expect(role).toBe('supervisor');
+      expect(role.role).toBe('supervisor');
       approvalStatus = 'Approved';
       return json(transaction());
+    }
+    if (endpoint === path + '/reserves/' + txnId + '/reject' && method === 'POST') {
+      expect(role.role).toBe('manager');
+      expect(request.postDataJSON()).toEqual({ rejectionReason: 'Synthetic rejection' });
+      approvalStatus = 'Rejected';
+      rejectionReason = request.postDataJSON().rejectionReason;
+      return json(transaction());
+    }
+    if (endpoint === path + '/reserves/manager-override' && method === 'PUT') {
+      expect(role.role).toBe('manager');
+      expect(request.postDataJSON()).toEqual({ reason: 'Synthetic override' });
+      overrideEnabled = true;
+      return json({ claimId, reserveLimitOverrideEnabled: overrideEnabled });
     }
     if (endpoint === path + '/documents') {
       if (method === 'POST') {
@@ -145,6 +178,66 @@ async function signIn(page: Page, username: string) {
   await page.getByLabel('Password').fill('test-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
+
+test('assigns a handler as manager and submits all three detail forms without reloading', async ({ page }) => {
+  await interceptApi(page, true);
+  await page.goto('/claims/' + claimId);
+  await signIn(page, 'manager');
+  await expect(page.getByRole('heading', { name: claimNumber })).toBeVisible();
+
+  await page.getByLabel('Notes', { exact: true }).fill('Synthetic notes');
+  await page.getByRole('button', { name: 'Save notes' }).click();
+  await expect(page.getByText('Notes saved.')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Change status' }).click();
+  await page.getByRole('menuitem', { name: 'Open', exact: true }).click();
+  await expect(page.getByText('Assign this claim to Claims Handler.')).toBeVisible();
+  await page.getByRole('button', { name: 'Review change' }).click();
+  await page.getByRole('button', { name: 'Confirm change' }).click();
+  const header = page.locator('.claim-header');
+  await expect(header.getByText('Open', { exact: true })).toBeVisible();
+  await expect(header.getByText('Claims Handler', { exact: true })).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Reserves' }).click();
+  const reserve = page.getByRole('row').filter({ hasText: 'Initial estimate' });
+  await expect(reserve.getByText('Claims Handler', { exact: true })).toBeVisible();
+  await reserve.getByRole('button', { name: 'Reject', exact: true }).click();
+  await page.getByLabel('Rejection reason').fill('Synthetic rejection');
+  await page.getByRole('button', { name: 'Review rejection' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Reject', exact: true }).click();
+  await expect(reserve.getByText('Rejected', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Enable manager override' }).click();
+  await page.getByLabel('Override reason').fill('Synthetic override');
+  await page.getByRole('button', { name: 'Enable override', exact: true }).click();
+  await expect(page.getByText('Manager override enabled')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+});
+
+test('uses the configured fallback only after a directory failure', async ({ page }) => {
+  await interceptApi(page, true);
+  await page.route('**/config.js', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: 'window.claimsSettings = { demoHandlerId: ' + JSON.stringify(handlerId) + ' };',
+  }));
+  let failDirectory = false;
+  await page.route('**/api/reference/users', route => failDirectory ? route.abort('timedout') : route.fulfill({ json: [] }));
+  await page.goto('/claims/' + claimId);
+  await signIn(page, 'manager');
+  await page.getByRole('button', { name: 'Change status' }).click();
+  await page.getByRole('menuitem', { name: 'Open', exact: true }).click();
+  await expect(page.getByText('No handler is available to assign.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Review change' })).toBeDisabled();
+
+  failDirectory = true;
+  await page.reload();
+  await signIn(page, 'manager');
+  await expect(page.getByRole('button', { name: 'Retry user directory' })).toBeVisible();
+  await page.getByRole('button', { name: 'Change status' }).click();
+  await page.getByRole('menuitem', { name: 'Open', exact: true }).click();
+  await page.getByRole('button', { name: 'Review change' }).click();
+  await page.getByRole('button', { name: 'Confirm change' }).click();
+  await expect(page.locator('.claim-header').getByText('Open', { exact: true })).toBeVisible();
+});
 
 test('creates a claim, opens it, approves a reserve as a second user, and audits an attachment', async ({ page }) => {
   await interceptApi(page);

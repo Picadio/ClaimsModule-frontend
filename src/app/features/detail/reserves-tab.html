@@ -72,27 +72,27 @@
     </form>
   }
   @if (rejecting(); as transaction) {
-    <form class="panel subpanel" (ngSubmit)="action(transaction, 'reject')">
+    <form class="panel subpanel" [formGroup]="decisionForm" (ngSubmit)="action(transaction, 'reject')">
       <h3>Reject {{ transaction.component }} · {{ transaction.amount | money }}</h3>
       <mat-form-field class="full"><mat-label>Rejection reason</mat-label>
-        <textarea matInput [formControl]="reason" required [readonly]="saving.pending()"></textarea>
+        <textarea matInput formControlName="reason" required [readonly]="saving.pending()"></textarea>
       </mat-form-field>
       <div class="actions">
         <button mat-button type="button" [disabled]="saving.pending()" (click)="rejecting.set(null)">Cancel</button>
-        <button mat-flat-button [disabled]="busy() || !reason.value.trim()">Review rejection</button>
+        <button mat-flat-button type="submit" [disabled]="busy() || !reason.value.trim()">Review rejection</button>
       </div>
     </form>
   }
   @if (overriding()) {
-    <form class="panel subpanel" (ngSubmit)="override()">
+    <form class="panel subpanel" [formGroup]="decisionForm" (ngSubmit)="override()">
       <h3>Enable claim reserve override</h3>
       <p>Allow a projected approved balance above $10,000,000 for this claim. The reason is recorded in Audit Log.</p>
       <mat-form-field class="full"><mat-label>Override reason</mat-label>
-        <textarea matInput [formControl]="reason" required [readonly]="saving.pending()"></textarea>
+        <textarea matInput formControlName="reason" required [readonly]="saving.pending()"></textarea>
       </mat-form-field>
       <div class="actions">
         <button mat-button type="button" [disabled]="saving.pending()" (click)="overriding.set(false)">Cancel</button>
-        <button mat-flat-button [disabled]="busy() || !reason.value.trim()">Enable override</button>
+        <button mat-flat-button type="submit" [disabled]="busy() || !reason.value.trim()">Enable override</button>
       </div>
     </form>
   }

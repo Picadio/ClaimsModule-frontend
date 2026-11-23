@@ -22,6 +22,7 @@ export type TransactionType = 'Add' | 'Adjust' | 'Reverse';
 export type Money = string;
 
 export interface Identity { userId: string; organizationEntityId: string; role: Role; }
+export interface UserReference { userId: string; displayName: string; role: Role; }
 export interface Credentials { username: string; password: string; }
 export interface DemoToken { accessToken: string; tokenType: string; expiresIn: number; }
 export interface Policy {

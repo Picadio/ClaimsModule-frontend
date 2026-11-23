@@ -11,6 +11,7 @@ interface Problem {
   title?: string;
   detail?: string;
   errors?: Record<string, string[]>;
+  correlationId?: string;
 }
 
 export class ApiError extends Error {
@@ -35,8 +36,10 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
 
   return next(authorized).pipe(catchError((error: HttpErrorResponse) =>
     from(readProblem(error.error)).pipe(mergeMap(problem => {
-      const correlation = error.headers.get('X-Correlation-ID');
-      const expired = error.status === 401 && !login;
+      const correlation = error.headers.get('X-Correlation-ID') ?? problem.correlationId ?? null;
+      const timedOut = error.error instanceof DOMException && error.error.name === 'TimeoutError';
+      const status = timedOut ? 0 : error.status;
+      const expired = status === 401 && !login;
       if (expired && token && token === session.token) {
         session.end();
         if (!router.url.startsWith('/login')) {
@@ -44,7 +47,7 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
         }
       }
       const fallback: Record<number, string> = {
-        0: 'The API could not be reached.',
+        0: timedOut ? 'The request timed out. Try again.' : 'The API could not be reached.',
         401: login ? 'The username or password is incorrect.' : 'Sign in to continue.',
         403: 'Your role does not have permission for this action.',
         404: login ? 'Demo sign-in is unavailable.' : 'The requested record was not found.',
@@ -53,8 +56,8 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
         422: 'Review the highlighted validation errors.',
         429: 'Too many attempts. Wait before trying again.',
       };
-      const message = problem.detail || fallback[error.status] || problem.title || 'The request failed.';
-      const apiError = new ApiError(error.status, message, problem.errors ?? {}, correlation);
+      const message = problem.detail || fallback[status] || problem.title || 'The request failed.';
+      const apiError = new ApiError(status, message, problem.errors ?? {}, correlation);
       snackbar.open(correlation ? message + ' Reference: ' + correlation : message, 'Dismiss', { duration: 8000 });
       return throwError(() => apiError);
     })),

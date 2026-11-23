@@ -60,7 +60,8 @@ export class ReservesTab implements OnInit {
   protected readonly overriding = signal(false);
   protected readonly reservedWarnings = signal<string[]>([]);
   protected readonly form = this.fb.group({ component: ['Indemnity' as ReserveComponent], amount: [''], reason: [''] });
-  protected readonly reason = this.fb.control('');
+  protected readonly decisionForm = this.fb.group({ reason: [''] });
+  protected readonly reason = this.decisionForm.controls.reason;
   protected readonly canSubmit = computed(() =>
     !!this.claim().policyId && this.claim().status !== 'Closed' && this.claim().status !== 'Withdrawn');
   protected readonly canOverride = computed(() =>

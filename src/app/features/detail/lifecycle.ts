@@ -7,6 +7,7 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { MatMenuModule } from '@angular/material/menu';
+import { MatSelectModule } from '@angular/material/select';
 import { MatSnackBar } from '@angular/material/snack-bar';
 import { EMPTY, switchMap } from 'rxjs';
 import { ClaimsApi } from '../../core/claims-api';
@@ -23,7 +24,7 @@ import { StatusChip } from '../../shared/status-chip';
   selector: 'app-lifecycle',
   imports: [
     ReactiveFormsModule, MatButtonModule, MatMenuModule, MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    Feedback, StatusChip,
+    MatSelectModule, Feedback, StatusChip,
   ],
   templateUrl: './lifecycle.html',
 })
@@ -31,11 +32,12 @@ export class Lifecycle {
   readonly claim = input.required<ClaimDetail>();
   readonly references = input.required<StatusReference[]>();
   readonly busy = input(false);
+  readonly directoryUnavailable = input(false);
   readonly changed = output<void>();
   private readonly api = inject(ClaimsApi);
   private readonly dialogs = inject(MatDialog);
   private readonly snackbar = inject(MatSnackBar);
-  private readonly session = inject(Session);
+  protected readonly session = inject(Session);
   protected readonly task = new Operation();
   protected readonly preflight = new Operation();
   protected readonly target = signal<Status | null>(null);
@@ -55,10 +57,22 @@ export class Lifecycle {
   });
 
   protected readonly assign = computed(() => this.target() === 'Open' && this.claim().status === 'Draft' && !this.claim().assignedHandlerId);
+  protected readonly handlers = computed(() => this.session.directory()?.filter(user => user.role === 'handler') ?? []);
+  protected readonly selectedHandler = signal<string | undefined>(undefined);
   protected readonly handler = computed(() => {
     const user = this.session.identity();
-    return user?.role === 'handler' ? user.userId : settings.demoHandlerId;
+    if (user?.role === 'handler') return user.userId;
+
+    const handlers = this.handlers();
+    const selected = handlers.find(handler => handler.userId === this.selectedHandler());
+    const configured = handlers.find(handler => handler.userId === settings.demoHandlerId);
+    return selected?.userId ?? configured?.userId ??
+      (handlers.length === 1 ? handlers[0].userId : undefined) ??
+      (this.session.directory() === null && this.directoryUnavailable() ? settings.demoHandlerId : undefined);
   });
+  protected readonly chooseHandler = computed(() =>
+    this.session.identity()?.role !== 'handler' && this.handlers().length > 1);
+  protected readonly directoryPending = computed(() => this.session.directory() === null && !this.directoryUnavailable());
   protected readonly mustAcknowledge = computed(() =>
     this.target() === 'Open' && this.claim().status === 'Draft' &&
     this.claim().warnings.some(warning => warning.code === 'LOSS_OUTSIDE_POLICY_PERIOD'));
@@ -71,6 +85,7 @@ export class Lifecycle {
 
   protected select(status: Status): void {
     this.target.set(status);
+    this.selectedHandler.set(undefined);
     this.form.reset();
     this.task.errors.set([]);
     this.checklist.set(null);

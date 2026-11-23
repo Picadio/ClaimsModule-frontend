@@ -24,7 +24,7 @@ The local Angular proxy forwards `/api` to the HTTPS backend on loopback. Its de
 npm run build
 ```
 
-Deploy `dist/claims-module-frontend/browser` to a static host with a single-page app fallback. The build includes `staticwebapp.config.json` for Azure Static Web Apps. When hosting the frontend and API on distinct origins, configure public `apiOrigin` in `public/config.js` before the build, or set it in the published `config.js`. Configure the API's allowed frontend origin and request headers in CORS. `demoHandlerId` is optional and allows an elevated demo user to assign the configured handler when opening a Draft. It is a public identifier. Demo credentials and signing keys belong in backend configuration.
+Deploy `dist/claims-module-frontend/browser` to a static host with a single-page app fallback. The build includes `staticwebapp.config.json` for Azure Static Web Apps. When hosting the frontend and API on distinct origins, configure public `apiOrigin` in `public/config.js` before the build, or set it in the published `config.js`. Configure the API's allowed frontend origin and request headers in CORS. When opening a Draft, elevated users can choose a handler from the organization's active user directory. An optional public `demoHandlerId` sets the preferred handler. Demo credentials and signing keys belong in backend configuration.
 
 ### Azure App Service on Linux
 

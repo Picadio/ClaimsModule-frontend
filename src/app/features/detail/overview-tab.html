@@ -51,10 +51,10 @@
   <h2>Claim notes</h2>
   <app-feedback [loading]="notesTask.pending()" [errors]="notesTask.errors()" />
   @if (saved() && notes.pristine) { <p class="success" role="status">Notes saved.</p> }
-  <form (ngSubmit)="saveNotes()">
+  <form [formGroup]="notesForm" (ngSubmit)="saveNotes()">
     <mat-form-field class="full"><mat-label>Notes</mat-label>
-      <textarea matInput [formControl]="notes" rows="3" maxlength="4000" [readonly]="notesTask.pending()"></textarea>
+      <textarea matInput formControlName="notes" rows="3" maxlength="4000" [readonly]="notesTask.pending()"></textarea>
     </mat-form-field>
-    <button mat-flat-button [disabled]="notesTask.pending() || notes.pristine">Save notes</button>
+    <button mat-flat-button type="submit" [disabled]="notesTask.pending() || notes.pristine">Save notes</button>
   </form>
 </section>

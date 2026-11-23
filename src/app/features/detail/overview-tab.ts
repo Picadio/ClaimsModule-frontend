@@ -29,8 +29,10 @@ export class OverviewTab {
   protected readonly saved = signal(false);
   protected readonly linking = signal(false);
   protected readonly policy = signal<Policy | null>(null);
-  protected readonly notes = inject(FormBuilder).nonNullable.control('');
-  protected readonly acknowledgement = inject(FormBuilder).nonNullable.control(false);
+  private readonly fb = inject(FormBuilder).nonNullable;
+  protected readonly notesForm = this.fb.group({ notes: [''] });
+  protected readonly notes = this.notesForm.controls.notes;
+  protected readonly acknowledgement = this.fb.control(false);
 
   constructor() {
     effect(() => {
@@ -40,6 +42,7 @@ export class OverviewTab {
   }
 
   protected saveNotes(): void {
+    if (this.notesTask.pending() || this.notes.pristine) return;
     this.saved.set(false);
     this.notesTask.run(this.api.saveNotes(this.claim().id, this.notes.value.trim() || null), result => {
       this.notes.reset(result.notes ?? '');

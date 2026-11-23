@@ -8,7 +8,7 @@ import {
   AuditEntry, Cause, ClaimDetail, ClaimDocument, ClaimFilters, ClaimSummary, ClosureCheck, Coverage,
   CreateClaim, CreatedClaim, Credentials, DemoToken, FnolValidation, Identity, Ledger, NotesResult,
   OverrideResult, Page, Party, PartyInput, Policy, PolicyResult, ReserveChange, ReserveComponent,
-  ReserveTransaction, StatusReference, StatusResult, Transition,
+  ReserveTransaction, StatusReference, StatusResult, Transition, UserReference,
 } from './contracts';
 import { Session } from './session';
 import { apiBase } from './settings';
@@ -16,6 +16,8 @@ import { apiBase } from './settings';
 const monetaryFields = new Set([
   'amount', 'estimatedlossamount', 'previousbalance', 'newbalance', 'currentamount', 'pendingamount', 'totalreserves', 'balance',
 ]);
+const fnolTimeoutMs = 30_000;
+const userDirectoryTimeoutMs = 10_000;
 
 export function encodeRequest(value: object): string {
   return stringify(value, (key, property) =>
@@ -40,6 +42,9 @@ export class ClaimsApi {
   me() { return this.json<Identity>('GET', '/auth/me'); }
   causes() { return this.json<Cause[]>('GET', '/reference/cause-of-loss-codes'); }
   statuses() { return this.json<StatusReference[]>('GET', '/reference/claim-statuses'); }
+  users() {
+    return this.json<UserReference[]>('GET', '/reference/users', null, undefined, userDirectoryTimeoutMs);
+  }
 
   policies(q: string) {
     return this.json<Policy[]>('GET', '/policies/search', null, new HttpParams().set('q', q));
@@ -57,8 +62,10 @@ export class ClaimsApi {
     return this.json<Page<ClaimSummary>>('GET', '/claims', null, params);
   }
 
-  validate(request: CreateClaim) { return this.json<FnolValidation>('POST', '/claims/validate', request); }
-  create(request: CreateClaim) { return this.write<CreatedClaim>('POST', '/claims', request); }
+  validate(request: CreateClaim) {
+    return this.json<FnolValidation>('POST', '/claims/validate', request, undefined, fnolTimeoutMs);
+  }
+  create(request: CreateClaim) { return this.write<CreatedClaim>('POST', '/claims', request, fnolTimeoutMs); }
   detail(id: string) { return this.json<ClaimDetail>('GET', '/claims/' + id); }
   closure(id: string) { return this.json<ClosureCheck>('GET', '/claims/' + id + '/closure-check'); }
 
@@ -138,20 +145,24 @@ export class ClaimsApi {
     return new HttpParams().set('page', page).set('pageSize', pageSize);
   }
 
-  private json<T>(method: string, path: string, body: object | null = null, params?: HttpParams): Observable<T> {
-    return this.send<T>(method, path, body ? encodeRequest(body) : null, new HttpHeaders(), params);
+  private json<T>(method: string, path: string, body: object | null = null,
+      params?: HttpParams, timeout?: number): Observable<T> {
+    return this.send<T>(method, path, body ? encodeRequest(body) : null, new HttpHeaders(), params, timeout);
   }
 
-  private write<T>(method: string, path: string, body: object | null = null): Observable<T> {
+  private write<T>(method: string, path: string, body: object | null = null, timeout?: number): Observable<T> {
     const encoded = body ? encodeRequest(body) : null;
-    return this.withWriteKey(method, path, encoded ?? '', headers => this.send<T>(method, path, encoded, headers));
+    return this.withWriteKey(method, path, encoded ?? '',
+      headers => this.send<T>(method, path, encoded, headers, undefined, timeout));
   }
 
-  private send<T>(method: string, path: string, body: string | null, headers: HttpHeaders, params?: HttpParams) {
+  private send<T>(method: string, path: string, body: string | null, headers: HttpHeaders,
+      params?: HttpParams, timeout?: number) {
     return this.http.request(method, apiBase + path, {
       body,
       headers: body === null ? headers : headers.set('Content-Type', 'application/json'),
       params,
+      timeout,
       responseType: 'text',
     }).pipe(map(value => value ? decodeResponse<T>(value) : undefined as T));
   }
