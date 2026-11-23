@@ -4,7 +4,7 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { catchError, map, switchMap, throwError } from 'rxjs';
 import { ClaimsApi } from '../core/claims-api';
 import { Session } from '../core/session';
@@ -12,7 +12,7 @@ import { Feedback } from '../shared/feedback';
 import { Operation } from '../shared/operation';
 
 @Component({
-  imports: [ReactiveFormsModule, MatButtonModule, MatFormFieldModule, MatInputModule, Feedback],
+  imports: [ReactiveFormsModule, RouterLink, MatButtonModule, MatFormFieldModule, MatInputModule, Feedback],
   template: `
     <section class="login panel">
       <h1>Sign in</h1>
@@ -31,6 +31,7 @@ import { Operation } from '../shared/operation';
         </mat-form-field>
         <button mat-flat-button [disabled]="operation.pending()">Sign in</button>
       </form>
+      <a mat-button routerLink="/register">Create a demo account</a>
     </section>
   `,
 })

@@ -2,9 +2,11 @@ import { DatePipe } from '@angular/common';
 import { Component, computed, DestroyRef, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AbstractControl, FormBuilder, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCheckboxModule } from '@angular/material/checkbox';
-import { ErrorStateMatcher } from '@angular/material/core';
+import { ErrorStateMatcher, provideNativeDateAdapter } from '@angular/material/core';
+import { MatDatepickerModule } from '@angular/material/datepicker';
 import { MatDialog } from '@angular/material/dialog';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -27,9 +29,22 @@ import { Operation } from '../shared/operation';
 import { PartyForm, partyName } from '../shared/party-form';
 import { PolicySearch } from '../shared/policy-search';
 
-function pastDate(control: AbstractControl<string>) {
-  const timestamp = new Date(control.value).getTime();
-  return Number.isFinite(timestamp) && timestamp <= Date.now() ? null : { pastDate: true };
+function localLossInstant(day: Date | null, time: string): Date | null {
+  if (!day || !Number.isFinite(day.getTime()) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return null;
+  const [hours, minutes] = time.split(':').map(Number);
+  const instant = new Date(day);
+  instant.setHours(hours, minutes, 0, 0);
+  return instant.getDate() === day.getDate() && instant.getMonth() === day.getMonth() &&
+    instant.getFullYear() === day.getFullYear() && instant.getHours() === hours && instant.getMinutes() === minutes
+    ? instant : null;
+}
+
+function pastLossInstant(form: AbstractControl) {
+  const day: Date | null = form.get('lossDate')?.value;
+  const time: string = form.get('lossTime')?.value;
+  if (!day || !time) return null;
+  const instant = localLossInstant(day, time);
+  return instant && instant.getTime() <= Date.now() ? null : { pastLossInstant: true };
 }
 
 const partyLabels: Readonly<Record<string, string>> = {
@@ -56,8 +71,10 @@ function issueStep(path: string): number {
 @Component({
   imports: [
     DatePipe, RouterLink, ReactiveFormsModule, MatButtonModule, MatCheckboxModule, MatFormFieldModule,
-    MatInputModule, MatSelectModule, MatStepperModule, PolicySearch, Feedback, PartyForm, MoneyPipe,
+    MatInputModule, MatSelectModule, MatStepperModule, MatDatepickerModule, MatAutocompleteModule,
+    PolicySearch, Feedback, PartyForm, MoneyPipe,
   ],
+  providers: [provideNativeDateAdapter()],
   templateUrl: './fnol.html',
 })
 export class Fnol {
@@ -91,7 +108,16 @@ export class Fnol {
   protected readonly coverage = signal<string[]>([]);
   protected readonly loadingCoverage = signal(false);
   private readonly selectedPolicies = new Subject<Policy | null>();
-  protected readonly causesQuery = new FormControl('', { nonNullable: true });
+  protected readonly isPastOrCurrentDay = (day: Date | null) => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return day !== null && day <= today;
+  };
+  protected readonly causeName = (cause: Cause | string | null) => typeof cause === 'string' ? cause : cause?.name ?? '';
+  protected readonly lossTimeErrorMatcher: ErrorStateMatcher = {
+    isErrorState: (control, form) => this.defaultMatcher.isErrorState(control, form) ||
+      !!(control?.touched && this.details.hasError('pastLossInstant')),
+  };
   protected readonly parties = signal<PartyInput[]>([]);
   protected readonly risks = signal<RiskInput[]>([]);
   protected readonly editingParty = signal(false);
@@ -106,8 +132,10 @@ export class Fnol {
     unknown: [false],
     claimType: ['Property', [(control: AbstractControl<string>) => control.value.trim() ? null : { required: true }, Validators.maxLength(50)]],
     severity: ['Standard' as Severity],
-    lossDate: ['', [Validators.required, pastDate]],
-    causeOfLossCode: ['', Validators.required],
+    lossDate: new FormControl<Date | null>(null, Validators.required),
+    lossTime: ['', Validators.required],
+    causeOfLossCode: new FormControl<Cause | string | null>(null, control =>
+      control.value && typeof control.value !== 'string' ? null : { required: true }),
     lossDescription: ['', (control: AbstractControl<string>) => control.value.trim().length >= 20 ? null : { minlength: true }],
     lossLocation: ['', Validators.maxLength(500)],
     estimatedLossAmount: ['', (control: AbstractControl<string>) => {
@@ -116,7 +144,7 @@ export class Fnol {
       return amount !== null && amount >= 0n ? null : { amount: true };
     }],
     policeReportNumber: ['', Validators.maxLength(100)],
-  });
+  }, { validators: pastLossInstant });
   protected readonly claimantReady = new FormControl(false, { nonNullable: true, validators: Validators.requiredTrue });
   protected readonly riskForm = this.fb.group({
     assetType: ['Property' as AssetType],
@@ -135,7 +163,8 @@ export class Fnol {
     const destroyRef = inject(DestroyRef);
     for (const [name, control] of Object.entries(this.details.controls)) {
       if (name === 'unknown' || name === 'policyReady') continue;
-      const field = name === 'claimType' || name === 'severity' ? name : 'LossEvent.' + name;
+      const field = name === 'claimType' || name === 'severity' ? name :
+        'LossEvent.' + (name === 'lossTime' ? 'lossDate' : name);
       this.watchControl(control, field, destroyRef);
     }
     for (const [name, control] of Object.entries(this.reserve.controls)) {
@@ -168,10 +197,9 @@ export class Fnol {
   }
 
   protected filteredCauses(): Cause[] {
-    const search = this.causesQuery.value.trim().toLowerCase();
-    const selected = this.details.controls.causeOfLossCode.value;
-    return this.causes().filter(cause =>
-      cause.code === selected || (cause.name + ' ' + cause.code).toLowerCase().includes(search));
+    const value = this.details.controls.causeOfLossCode.value;
+    const search = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return this.causes().filter(cause => (cause.name + ' ' + cause.code).toLowerCase().includes(search));
   }
 
   protected selectPolicy(policy: Policy | null): void {
@@ -182,8 +210,12 @@ export class Fnol {
     this.selectedPolicies.next(policy);
   }
 
-  protected period(policy: Policy) {
-    return policyPeriodBadge(this.details.controls.lossDate.value, policy);
+  protected lossInstant(): Date | null {
+    return localLossInstant(this.details.controls.lossDate.value, this.details.controls.lossTime.value);
+  }
+
+  protected period(policy: Policy, instant: Date) {
+    return policyPeriodBadge(instant.toISOString(), policy);
   }
 
   protected updateParties(parties: PartyInput[]): void {
@@ -283,6 +315,9 @@ export class Fnol {
     this.serverIssues.set({});
     const submittedRevision = this.revision;
     const form = this.details.getRawValue();
+    const lossInstant = this.lossInstant();
+    const cause = form.causeOfLossCode;
+    if (!lossInstant || !cause || typeof cause === 'string') return;
     const reserve = this.reserve.getRawValue();
     const amount = moneyUnits(reserve.amount);
     const estimated = moneyUnits(form.estimatedLossAmount);
@@ -291,8 +326,8 @@ export class Fnol {
       claimType: form.claimType.trim(),
       severity: form.severity,
       lossEvent: {
-        lossDate: new Date(form.lossDate).toISOString(),
-        causeOfLossCode: form.causeOfLossCode,
+        lossDate: lossInstant.toISOString(),
+        causeOfLossCode: cause.code,
         lossDescription: form.lossDescription.trim(),
         lossLocation: form.lossLocation.trim() || null,
         estimatedLossAmount: estimated === null ? null : moneyText(estimated),

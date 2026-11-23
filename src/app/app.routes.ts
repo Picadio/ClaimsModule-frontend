@@ -8,6 +8,7 @@ const requireSession: CanActivateFn = (_, state) =>
 
 export const routes: Routes = [
   { path: 'login', title: 'Sign in · Claims Module', loadComponent: () => import('./features/login').then(m => m.Login) },
+  { path: 'register', title: 'Create demo account · Claims Module', loadComponent: () => import('./features/register').then(m => m.Register) },
   { path: 'claims', canActivateChild: [requireSession], children: [
     { path: '', title: 'Claims · Claims Module', loadComponent: () => import('./features/claims-list').then(m => m.ClaimsList) },
     { path: 'new', title: 'Log new claim · Claims Module', loadComponent: () => import('./features/fnol').then(m => m.Fnol) },

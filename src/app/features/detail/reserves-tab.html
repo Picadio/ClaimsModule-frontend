@@ -123,7 +123,7 @@
                 @if (entry.rejectionReason) { <div class="muted">Rejected: {{ entry.rejectionReason }}</div> }
               </td>
               <td>{{ session.actorName(entry.submittedByUserId) }}</td>
-              <td>{{ session.actorName(entry.approvedByUserId, entry.approvalStatus === 'AutoApproved' ? 'Automatic' : '—') }}</td>
+              <td>{{ entry.approvedByDisplayName || session.actorName(entry.approvedByUserId, entry.approvalStatus === 'AutoApproved' ? 'Automatic' : '—', 'Unknown user') }}</td>
               <td><span class="badge" [class.warning]="entry.postingStatus === 'Pending'" [class.error]="entry.postingStatus === 'Failed'">{{ entry.postingStatus }}</span></td>
               <td>
                 @if (allowed.approve && !approvalBlocked(entry)) {

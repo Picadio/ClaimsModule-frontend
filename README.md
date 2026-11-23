@@ -14,7 +14,7 @@ Use a compatible Node.js version and npm. Node 24 was used for development. [Ang
    npm start
    ```
 
-3. Open [the Angular app](http://localhost:4200/) and sign in with one of the configured demo accounts. Sign out and use a different account to approve a reserve.
+3. Open [the Angular app](http://localhost:4200/) and select **Create a demo account**. Register a handler to submit a claim and a separate supervisor or manager to approve reserves.
 
 The local Angular proxy forwards `/api` to the HTTPS backend on loopback. Its development-only certificate exception supports the local ASP.NET certificate. To change the local API port, edit `proxy.conf.json`.
 
@@ -54,7 +54,8 @@ The browser test uses synthetic API responses and a 1280-pixel viewport. The sam
 To run the browser test against an Azure demo, provide these variables in a local environment file outside the repository.
 
 - `CLAIMS_LIVE_BASE_URL` is the frontend URL.
-- `CLAIMS_LIVE_HANDLER_PASSWORD` and `CLAIMS_LIVE_SUPERVISOR_PASSWORD` are the passwords for the demo accounts.
+- `CLAIMS_LIVE_HANDLER_USERNAME` and `CLAIMS_LIVE_SUPERVISOR_USERNAME` are the registered demo usernames.
+- `CLAIMS_LIVE_HANDLER_PASSWORD` and `CLAIMS_LIVE_SUPERVISOR_PASSWORD` are their passwords.
 
 ```powershell
 node --env-file="$env:TEMP\claims-live.env" node_modules/@playwright/test/cli.js test --config playwright.azure.config.ts

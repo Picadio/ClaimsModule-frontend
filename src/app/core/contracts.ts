@@ -24,6 +24,7 @@ export type Money = string;
 export interface Identity { userId: string; organizationEntityId: string; role: Role; }
 export interface UserReference { userId: string; displayName: string; role: Role; }
 export interface Credentials { username: string; password: string; }
+export interface DemoRegistration extends Credentials { role: Role; }
 export interface DemoToken { accessToken: string; tokenType: string; expiresIn: number; }
 export interface Policy {
   policyId: string;
@@ -175,6 +176,7 @@ export interface ReserveTransaction {
   submittedByUserId: string | null;
   createdAt: string;
   approvedByUserId?: string;
+  approvedByDisplayName?: string;
   approvedAt: string | null;
   rejectedByUserId?: string;
   rejectionReason?: string;

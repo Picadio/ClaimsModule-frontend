@@ -4,11 +4,13 @@ import { readFile } from 'node:fs/promises';
 import { expect, test, type Page } from '@playwright/test';
 
 const uiOrigin = process.env['CLAIMS_LIVE_BASE_URL'];
+const handlerUsername = process.env['CLAIMS_LIVE_HANDLER_USERNAME'];
+const supervisorUsername = process.env['CLAIMS_LIVE_SUPERVISOR_USERNAME'];
 const handlerPassword = process.env['CLAIMS_LIVE_HANDLER_PASSWORD'];
 const supervisorPassword = process.env['CLAIMS_LIVE_SUPERVISOR_PASSWORD'];
 
-async function signIn(page: Page, role: string, password: string): Promise<void> {
-  await page.getByLabel('Username').fill(role);
+async function signIn(page: Page, username: string, password: string): Promise<void> {
+  await page.getByLabel('Username').fill(username);
   try {
     await page.getByLabel('Password').fill(password);
   } catch {
@@ -19,18 +21,24 @@ async function signIn(page: Page, role: string, password: string): Promise<void>
 }
 
 test('Azure demo completes FNOL, approval, GL posting, Blob download and audit', async ({ page, browser }) => {
-  test.skip(!uiOrigin || !handlerPassword || !supervisorPassword, 'Requires an Azure demo URL and both demo passwords.');
+  test.skip(!uiOrigin || !handlerUsername || !handlerPassword || !supervisorUsername || !supervisorPassword,
+    'Requires an Azure demo URL and credentials for both demo roles.');
   const marker = 'azure-smoke-' + randomUUID().slice(0, 12);
   const fileName = marker + '.txt';
   const fileContents = 'Synthetic Azure smoke test ' + marker;
 
   await page.goto('/claims');
-  await signIn(page, 'handler', handlerPassword!);
+  await signIn(page, handlerUsername!, handlerPassword!);
   await page.getByRole('link', { name: 'Log new claim' }).click();
   await page.getByLabel('Policy number or client name').fill('POL-2024-001001');
   await page.getByRole('option', { name: /POL-2024-001001/ }).click();
-  await page.getByLabel('Loss date and time').fill('2025-06-02T10:00');
-  await page.getByRole('combobox', { name: 'Cause of loss', exact: true }).click();
+  await page.getByRole('button', { name: 'Open calendar' }).click();
+  await page.getByRole('button', { name: 'Choose month and year' }).click();
+  await page.getByRole('button', { name: '2025', exact: true }).click();
+  await page.getByRole('button', { name: 'June 2025', exact: true }).click();
+  await page.getByRole('button', { name: 'June 2, 2025', exact: true }).click();
+  await page.getByLabel('Loss time', { exact: true }).fill('10:00');
+  await page.getByRole('combobox', { name: 'Cause of loss', exact: true }).fill('Fir');
   await page.getByRole('option', { name: 'Fire', exact: true }).click();
   await page.getByLabel('Loss description').fill('Synthetic property damage for ' + marker);
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -62,7 +70,7 @@ test('Azure demo completes FNOL, approval, GL posting, Blob download and audit',
   try {
     const reviewer = await supervisor.newPage();
     await reviewer.goto(claimUrl);
-    await signIn(reviewer, 'supervisor', supervisorPassword!);
+    await signIn(reviewer, supervisorUsername!, supervisorPassword!);
     await reviewer.getByRole('tab', { name: 'Reserves' }).click();
     const reserve = reviewer.getByRole('row').filter({ hasText: marker });
     await reserve.getByRole('button', { name: 'Approve', exact: true }).click();

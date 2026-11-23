@@ -29,10 +29,10 @@ export class Session {
     this.users.set(null);
   }
 
-  actorName(id: string | null | undefined, absent = '—'): string {
+  actorName(id: string | null | undefined, absent = '—', unknown = id): string {
     if (!id) return absent;
     const identity = this.identity();
     return this.directory()?.find(user => user.userId === id)?.displayName ??
-      (id === identity?.userId ? identity.username : id);
+      (id === identity?.userId ? identity.username : unknown ?? absent);
   }
 }

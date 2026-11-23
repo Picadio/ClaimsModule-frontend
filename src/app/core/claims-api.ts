@@ -6,7 +6,7 @@ import { catchError, defer, map, Observable, switchMap, tap, throwError } from '
 import { ApiError } from './api-error';
 import {
   AuditEntry, Cause, ClaimDetail, ClaimDocument, ClaimFilters, ClaimSummary, ClosureCheck, Coverage,
-  CreateClaim, CreatedClaim, Credentials, DemoToken, FnolValidation, Identity, Ledger, NotesResult,
+  CreateClaim, CreatedClaim, Credentials, DemoRegistration, DemoToken, FnolValidation, Identity, Ledger, NotesResult,
   OverrideResult, Page, Party, PartyInput, Policy, PolicyResult, ReserveChange, ReserveComponent,
   ReserveTransaction, StatusReference, StatusResult, Transition, UserReference,
 } from './contracts';
@@ -39,6 +39,10 @@ export class ClaimsApi {
   private readonly unresolved = new Map<string, string>();
 
   login(credentials: Credentials) { return this.json<DemoToken>('POST', '/auth/demo-token', credentials); }
+  register(request: DemoRegistration, key: string) {
+    return this.send<UserReference>('POST', '/auth/register', encodeRequest(request),
+      new HttpHeaders({ 'Idempotency-Key': key }), undefined, 30_000);
+  }
   me() { return this.json<Identity>('GET', '/auth/me'); }
   causes() { return this.json<Cause[]>('GET', '/reference/cause-of-loss-codes'); }
   statuses() { return this.json<StatusReference[]>('GET', '/reference/claim-statuses'); }

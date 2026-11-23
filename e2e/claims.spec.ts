@@ -48,6 +48,7 @@ async function interceptApi(page: Page, existingDraft = false) {
     postingStatus: approvalStatus === 'Approved' ? 'Posted' : approvalStatus === 'Rejected' ? 'Cancelled' : 'Pending',
     postingKey: 'reserve-key', postingJobId: null, rejectionReason,
     submittedByUserId: handlerId, approvedByUserId: approvalStatus === 'Approved' ? supervisorId : undefined,
+    approvedByDisplayName: approvalStatus === 'Approved' ? 'Historical approver' : undefined,
     createdAt: instant, approvedAt: approvalStatus === 'Approved' ? instant : null, warnings: [],
   });
 
@@ -239,17 +240,49 @@ test('uses the configured fallback only after a directory failure', async ({ pag
   await expect(page.locator('.claim-header').getByText('Open', { exact: true })).toBeVisible();
 });
 
+test('registers a demo account in the selected role and returns to sign in', async ({ page }) => {
+  let registrations = 0;
+  await page.route('**/api/auth/register', async route => {
+    registrations++;
+    const request = route.request();
+    expect(request.postDataJSON()).toEqual({ username: 'Demo.Manager', password: 'Demo-password', role: 'manager' });
+    expect(request.headers()['authorization']).toBeUndefined();
+    expect(request.headers()['idempotency-key']).toMatch(/^[0-9a-f-]{36}$/);
+    await route.fulfill({ status: 201, json: { userId: 'manager-id', displayName: 'Demo.Manager', role: 'manager' } });
+  });
+
+  await page.goto('/login');
+  await page.getByRole('link', { name: 'Create a demo account' }).click();
+  await expect(page.getByRole('heading', { name: 'Create a demo account' })).toBeVisible();
+  await page.getByLabel('Username').fill('Demo.Manager');
+  await page.getByLabel('Password').fill('Demo-password');
+  await page.getByRole('combobox', { name: 'Role' }).click();
+  await page.getByRole('option', { name: 'Manager' }).click();
+  await page.getByRole('button', { name: 'Register' }).click();
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+  await expect(page.getByText('Demo account created. Sign in to continue.')).toBeVisible();
+  expect(registrations).toBe(1);
+});
+
 test('creates a claim, opens it, approves a reserve as a second user, and audits an attachment', async ({ page }) => {
   await interceptApi(page);
   await page.goto('/claims');
   await signIn(page, 'handler');
   await expect(page.getByText('No claims match these filters.')).toBeVisible();
+  await page.clock.setFixedTime(new Date(2025, 5, 1, 23, 59));
   await page.getByRole('link', { name: 'Log new claim' }).click();
   await page.getByLabel('Policy number or client name').fill('Meridian');
   await page.getByRole('option', { name: 'POL-100 · Meridian' }).click();
-  await page.getByLabel('Loss date and time').fill('2025-06-02T10:00');
+  await page.clock.setFixedTime(new Date(2025, 5, 2, 10, 10));
+  await page.getByLabel('Loss date', { exact: true }).click();
+  await page.getByRole('button', { name: 'Choose month and year' }).click();
+  await page.getByRole('button', { name: '2025', exact: true }).click();
+  await page.getByRole('button', { name: 'June 2025', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'June 3, 2025', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'June 2, 2025', exact: true }).click();
+  await page.getByLabel('Loss time', { exact: true }).fill('10:00');
   await expect(page.getByText('In force on loss date')).toHaveClass(/success/);
-  await page.getByRole('combobox', { name: 'Cause of loss', exact: true }).click();
+  await page.getByRole('combobox', { name: 'Cause of loss', exact: true }).fill('Fir');
   await page.getByRole('option', { name: 'Fire' }).click();
   await page.getByLabel('Loss description').fill('Synthetic property damage due to a fire.');
   await page.getByRole('button', { name: 'Continue' }).click();
@@ -314,6 +347,7 @@ test('creates a claim, opens it, approves a reserve as a second user, and audits
   await page.getByRole('button', { name: 'Approve', exact: true }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Approve', exact: true }).click();
   await expect(page.getByText('Posted', { exact: true })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Historical approver', exact: true })).toBeVisible();
   await expect(page.locator('.reserve-card .warning-text')).toHaveCount(0);
 
   await page.getByRole('tab', { name: 'Documents' }).click();

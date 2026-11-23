@@ -31,7 +31,8 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
   const router = inject(Router);
   const snackbar = inject(MatSnackBar);
   const login = request.url === apiBase + '/auth/demo-token';
-  const token = login ? null : session.token;
+  const registration = request.url === apiBase + '/auth/register';
+  const token = login || registration ? null : session.token;
   const authorized = token ? request.clone({ setHeaders: { Authorization: 'Bearer ' + token } }) : request;
 
   return next(authorized).pipe(catchError((error: HttpErrorResponse) =>
@@ -50,7 +51,7 @@ export const apiInterceptor: HttpInterceptorFn = (request, next) => {
         0: timedOut ? 'The request timed out. Try again.' : 'The API could not be reached.',
         401: login ? 'The username or password is incorrect.' : 'Sign in to continue.',
         403: 'Your role does not have permission for this action.',
-        404: login ? 'Demo sign-in is unavailable.' : 'The requested record was not found.',
+        404: login ? 'Demo sign-in is unavailable.' : registration ? 'Demo registration is unavailable.' : 'The requested record was not found.',
         409: 'The record changed. Refresh it before trying again.',
         413: 'The selected file exceeds the upload limit.',
         422: 'Review the highlighted validation errors.',

@@ -17,8 +17,8 @@
             <div class="feedback">
               <strong>{{ selected.policyNumber }} · {{ selected.clientName }}</strong>
               <p>{{ selected.effectiveDate }} to {{ selected.expirationDate }}</p>
-              @if (details.controls.lossDate.valid) {
-                @let badge = period(selected);
+              @if (lossInstant(); as instant) {
+                @let badge = period(selected, instant);
                 <span class="badge" [class.warning]="badge.warning" [class.success]="!badge.warning">{{ badge.label }}</span>
               }
               @if (loadingCoverage()) { <app-feedback [loading]="true" /> }
@@ -38,13 +38,30 @@
             @for (severity of severities; track severity) { <mat-option [value]="severity">{{ severity }}</mat-option> }
           </mat-select>
             <mat-error>{{ fieldError('Severity') }}</mat-error></mat-form-field>
-          <mat-form-field subscriptSizing="dynamic"><mat-label>Loss date and time</mat-label><input matInput type="datetime-local" formControlName="lossDate" [errorStateMatcher]="serverErrorMatcher" required>
-            <mat-hint>Local time</mat-hint><mat-error>{{ fieldError('LossEvent.lossDate') || 'Enter a loss date and time in the past.' }}</mat-error>
+          <mat-form-field subscriptSizing="dynamic">
+            <mat-label>Loss date</mat-label>
+            <input matInput formControlName="lossDate" [matDatepicker]="lossCalendar" [matDatepickerFilter]="isPastOrCurrentDay"
+              [errorStateMatcher]="serverErrorMatcher" (click)="lossCalendar.open()" readonly required>
+            <mat-datepicker-toggle matIconSuffix [for]="lossCalendar" />
+            <mat-datepicker #lossCalendar />
+            <mat-error>{{ fieldError('LossEvent.lossDate') || 'Select a loss date.' }}</mat-error>
           </mat-form-field>
-          <mat-form-field><mat-label>Find a cause of loss</mat-label><input matInput [formControl]="causesQuery"></mat-form-field>
-          <mat-form-field subscriptSizing="dynamic"><mat-label>Cause of loss</mat-label><mat-select formControlName="causeOfLossCode" [errorStateMatcher]="serverErrorMatcher" required>
-            @for (cause of filteredCauses(); track cause.code) { <mat-option [value]="cause.code">{{ cause.name }}</mat-option> }
-          </mat-select><mat-error>{{ fieldError('LossEvent.causeOfLossCode') || 'Select an active cause of loss.' }}</mat-error></mat-form-field>
+          <mat-form-field subscriptSizing="dynamic">
+            <mat-label>Loss time</mat-label>
+            <input matInput type="time" formControlName="lossTime" [errorStateMatcher]="lossTimeErrorMatcher" required>
+            <mat-hint>Local time</mat-hint>
+            <mat-error>Enter a valid local time in the past.</mat-error>
+          </mat-form-field>
+          <mat-form-field subscriptSizing="dynamic">
+            <mat-label>Cause of loss</mat-label>
+            <input matInput formControlName="causeOfLossCode" [matAutocomplete]="causeMenu"
+              [errorStateMatcher]="serverErrorMatcher" required>
+            <mat-autocomplete #causeMenu="matAutocomplete" [displayWith]="causeName">
+              @for (cause of filteredCauses(); track cause.code) { <mat-option [value]="cause">{{ cause.name }}</mat-option> }
+              @empty { <mat-option disabled>No matching causes</mat-option> }
+            </mat-autocomplete>
+            <mat-error>{{ fieldError('LossEvent.causeOfLossCode') || 'Select an active cause of loss.' }}</mat-error>
+          </mat-form-field>
           <mat-form-field subscriptSizing="dynamic"><mat-label>Loss location</mat-label><input matInput formControlName="lossLocation" [errorStateMatcher]="serverErrorMatcher" maxlength="500">
             <mat-error>{{ fieldError('LossEvent.lossLocation') }}</mat-error></mat-form-field>
           <mat-form-field subscriptSizing="dynamic"><mat-label>Estimated loss amount (USD)</mat-label><input matInput inputmode="decimal" formControlName="estimatedLossAmount" [errorStateMatcher]="serverErrorMatcher">
@@ -133,8 +150,8 @@
       <dl class="summary">
         <dt>Policy</dt><dd>{{ policy()?.policyNumber || 'Unknown policy' }} {{ policy()?.clientName }}</dd>
         <dt>Claim type</dt><dd>{{ loss.claimType }} · {{ loss.severity }}</dd>
-        <dt>Loss date</dt><dd>{{ loss.lossDate | date:'medium' }}</dd>
-        <dt>Cause of loss</dt><dd>{{ loss.causeOfLossCode }}</dd>
+        <dt>Loss date</dt><dd>{{ lossInstant() | date:'medium' }}</dd>
+        <dt>Cause of loss</dt><dd>{{ causeName(loss.causeOfLossCode) }}</dd>
         <dt>Description</dt><dd class="long-text">{{ loss.lossDescription }}</dd>
         <dt>Location</dt><dd>{{ loss.lossLocation || '—' }}</dd>
         <dt>Estimated loss</dt><dd>{{ (loss.estimatedLossAmount || null) | money }}</dd>
