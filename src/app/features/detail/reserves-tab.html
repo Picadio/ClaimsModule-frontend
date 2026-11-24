@@ -31,6 +31,15 @@
       @for (component of data.components; track component.id) {
         <div class="panel reserve-card">
           <h3>{{ component.component }}</h3>
+          @if (component.status) {
+            <p><span class="badge">{{ component.status }}</span>
+              @if (component.approvalStatus) {
+                <span class="badge" [class.warning]="component.approvalStatus === 'PendingApproval'">
+                  {{ component.approvalStatus }}
+                </span>
+              }
+            </p>
+          }
           <p>Approved <strong>{{ component.currentAmount | money }}</strong></p>
           <p>Pending <strong [class.warning-text]="hasPending(component)">{{ component.pendingAmount | money }}</strong></p>
           @if (canChangeBalance(component)) {

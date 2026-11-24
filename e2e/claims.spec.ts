@@ -12,7 +12,7 @@ const claimNumber = 'CLM-2026-0000001';
 const instant = '2025-06-02T10:00:00Z';
 const path = '/api/claims/' + claimId;
 
-async function interceptApi(page: Page, existingDraft = false) {
+async function interceptApi(page: Page, existingDraft = false, reversedReserve = false) {
   const policy = {
     policyId, policyNumber: 'POL-100', clientName: 'Meridian', effectiveDate: '2025-01-01',
     expirationDate: '2025-12-31', status: 'Active', coverageTypes: ['Property'],
@@ -34,6 +34,15 @@ async function interceptApi(page: Page, existingDraft = false) {
     lossEvent: { lossDate: instant, causeOfLossCode: 'COL-FIRE', lossDescription: 'Synthetic property loss' },
     parties: [], riskObjects: [], warnings: [], notes: null, assignedHandlerId: null, reserveBalances: [],
   } : null;
+  const reversedBalance = {
+    id: reserveId, component: 'Indemnity', currentAmount: 0, pendingAmount: 0,
+    status: 'Closed', approvalStatus: 'AutoApproved', hasApprovedTransaction: true,
+  };
+  if (claim && reversedReserve) {
+    claim.status = 'Open';
+    claim.assignedHandlerId = handlerId;
+    claim.reserveBalances = [reversedBalance];
+  }
   let role = users[0];
   let approvalStatus = existingDraft ? 'PendingApproval' : '';
   let rejectionReason: string | undefined;
@@ -74,7 +83,8 @@ async function interceptApi(page: Page, existingDraft = false) {
       return json([{ code: 'COL-FIRE', name: 'Fire', perilCategory: 'Property' }]);
     }
     if (endpoint === '/api/reference/claim-statuses') {
-      return json([{ status: 'Draft', allowedTransitions: ['Open'] }, { status: 'Open', allowedTransitions: ['UnderInvestigation'] }]);
+      return json([{ status: 'Draft', allowedTransitions: ['Open'] },
+        { status: 'Open', allowedTransitions: ['UnderInvestigation', 'PendingPayment'] }]);
     }
     if (endpoint === '/api/reference/users') return json(users);
     if (endpoint === '/api/policies/search') return json([policy]);
@@ -116,11 +126,16 @@ async function interceptApi(page: Page, existingDraft = false) {
       return json({ id: claimId, status: 'Open', assignedHandlerId: handlerId });
     }
     if (endpoint === path + '/reserves' && method === 'GET') {
+      if (reversedReserve) return json({
+        claimId, totalReserves: 0, reserveLimitOverrideEnabled: false,
+        components: [{ ...reversedBalance, history: [] }],
+      });
       const ledger = {
         claimId, totalReserves: approvalStatus === 'Approved' ? 15000 : 0, reserveLimitOverrideEnabled: overrideEnabled,
         components: approvalStatus ? [{
           id: reserveId, component: 'Indemnity', currentAmount: approvalStatus === 'Approved' ? 15000 : 0,
           pendingAmount: approvalStatus === 'PendingApproval' ? 15000 : 0, history: [transaction()],
+          status: 'Active', approvalStatus, hasApprovedTransaction: approvalStatus === 'Approved',
         }] : [],
       };
       return route.fulfill({
@@ -179,6 +194,20 @@ async function signIn(page: Page, username: string) {
   await page.getByLabel('Password').fill('test-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
 }
+
+test('shows Pending payment for a fully reversed approved reserve and displays the component status', async ({ page }) => {
+  await interceptApi(page, true, true);
+  await page.goto('/claims/' + claimId);
+  await signIn(page, 'handler');
+  await page.getByRole('button', { name: 'Change status' }).click();
+  const pendingPayment = page.getByRole('menuitem', { name: 'Pending payment', exact: true });
+  await expect(pendingPayment).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('tab', { name: 'Reserves' }).click();
+  const card = page.locator('.reserve-card');
+  await expect(card.getByText('Closed', { exact: true })).toBeVisible();
+  await expect(card.getByText('AutoApproved', { exact: true })).toBeVisible();
+});
 
 test('assigns a handler as manager and submits all three detail forms without reloading', async ({ page }) => {
   await interceptApi(page, true);
@@ -335,7 +364,7 @@ test('creates a claim, opens it, approves a reserve as a second user, and audits
   await expect(page.getByText('Supervisor approval required')).toBeVisible();
   await page.getByLabel('Reason', { exact: true }).fill('Initial estimate');
   await page.getByRole('button', { name: 'Submit reserve' }).click();
-  await expect(page.getByText('PendingApproval', { exact: true })).toBeVisible();
+  await expect(page.getByRole('row').getByText('PendingApproval', { exact: true })).toBeVisible();
   await expect(page.locator('.reserve-card .warning-text')).toHaveText('$' + '15,000.00');
   await expect(page.getByRole('button', { name: 'Approve', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Retract', exact: true })).toBeVisible();

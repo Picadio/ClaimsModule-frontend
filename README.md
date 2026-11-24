@@ -1,6 +1,6 @@
 # Claims Module Frontend
 
-Angular 21 frontend for the ClaimsModule .NET API. It includes the claims list, First Notice of Loss intake, and claim detail screens. See [Frontend plan](FRONTEND-PLAN.md) for the requirements, API decisions and Azure integration steps.
+Angular 21 frontend for the ClaimsModule .NET API. It includes the claims list, First Notice of Loss intake, and claim detail screens. See the [ClaimsModule backend repository](https://github.com/Picadio/ClaimsModule) for the architecture and API setup.
 
 ## Run locally
 

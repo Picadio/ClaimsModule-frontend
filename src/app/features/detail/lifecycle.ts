@@ -49,6 +49,7 @@ export class Lifecycle {
   protected readonly next = computed(() => {
     const claim = this.claim();
     const approved = claim.reserveBalances.some(balance => {
+      if (balance.hasApprovedTransaction !== undefined) return balance.hasApprovedTransaction;
       const amount = moneyUnits(balance.currentAmount);
       return amount !== null && amount !== 0n;
     });

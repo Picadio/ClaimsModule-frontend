@@ -189,6 +189,9 @@ export interface ReserveBalance {
   component: ReserveComponent;
   currentAmount: Money;
   pendingAmount: Money;
+  hasApprovedTransaction?: boolean;
+  status?: 'Active' | 'Closed';
+  approvalStatus?: Approval | null;
 }
 export interface ComponentLedger extends ReserveBalance { history: ReserveTransaction[]; }
 export interface Ledger {
